@@ -58,7 +58,11 @@ namespace MixedAtmospheres.Oni
                     (flags&AbsorbCellQuery.AbsorbOxygenSafeCellFlags.IsBreathable)!=0&&ColonyDlcFluidReaders.BionicSamples>before,
                     $"hidden oxygen samples {hidden}, score {ratio:R}/{expected:R}, available {available:R}kg, flags {flags}");
                 var water=Cell(6,0);var has=ColonyOwner.TryReadView(water,out var view);
-                Record("aquatic habitat reads physical liquid under a gas projection",has&&!Grid.Element[water].IsLiquid&&
+                // The cell is two fifths liquid. Until 1.13.0 it was shown as its gas and this was the
+                // hidden-liquid case; since the shown-phase decision of 2026-11-23 a resting liquid is
+                // shown at any volume. Either way the habitat query must answer from the cell's physical
+                // liquid fraction with the caller's threshold: yes at the game's 0.35, no at one half.
+                Record("aquatic habitat reads the cell's physical liquid fraction",has&&
                     view.LiquidFraction>=.35f&&view.LiquidFraction<.5f&&Grid.IsSubstantialLiquid(water)&&
                     Grid.IsSubstantialLiquidUnsafe(water)&&!Grid.IsSubstantialLiquid(water,.5f),
                     $"shown {Grid.Element[water].id}, liquid fraction {view.LiquidFraction:R}, queries {ColonyDlcFluidReaders.AquaticReads}");

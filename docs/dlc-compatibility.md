@@ -465,6 +465,35 @@ floor is excluded; and the 'tiles of 0 kg' printed by the old check is the prefa
 asserts: every comet has landed, the site gets back at least ONI's own share
 (49%) and at most all of it, and nothing leaves after the landings.
 
+**Checks corrected in 1.13.5** (they had stopped passing unnoticed; with
+1.13.3's code as well, see [1.13.5](playtest-1.13.5.md#test-harness-repairs)):
+
+- *Nothing leaves after the landings* compared the site's last five mass
+  samples to 1e-6. Since natural sublimation (2026-11-09) a corium tile beside
+  open gas sublimates into nuclear waste at the element's efficiency of one
+  half, the game's own rule, so the site loses half of what such a tile gives
+  off: the check failed whenever a comet's tile lay open (2 runs of 3). A
+  corium tile is now counted at the half its sublimation leaves, and a sample
+  may lack the product of the tile mass lost in the four ticks before it (the
+  owned cells are read that much later than the native tile). The bound is
+  unchanged. A run that met it: tile 9.605893 to 9.525893 kg, the corrected
+  sum 538.036976 kg in all five samples, 0.04 kg on its way in one.
+- `spaced-out-hep` counted the payload as fallout gas and liquid waste. The
+  arena is at 300 K, the waste's freezing point, so the condensed waste
+  freezes into loose solid waste within some 90 ticks (0.014 kg of 0.199 kg
+  was still liquid at the check). The check counts the frozen waste too; its
+  bounds are unchanged.
+- `spaced-out-radiation` pairs a kill with the radiation of that frame or
+  the one before (overlapped pacing).
+
+These scenarios now run in the release tier
+([`LINUX_EXTRA_BATCHES`](performance-acceptance.md#patch-regression)), with
+what a chain needs: `spaced-out-rocket-abandon` needs the rocket's port step
+before the flight (`spaced-out-rocket,spaced-out-rocket-ports,spaced-out-rocket-flight,spaced-out-rocket-abandon`;
+without it the cabin holds two fluids, not the four the check asks for), and
+a Spaced Out! start asteroid has room for the arenas of about three
+scenarios in one game.
+
 **Fault found, fixed in `5a4155d`:** a 30 x 10 arena carved beside the printing
 pod (the first rail-gun run, `run-m1`) closes its border over a natural
 hydrogen pocket (seven cells of 0.1128 kg at 319 K); the displaced gas
@@ -609,7 +638,10 @@ the pack's puffer fish and checks its own suffocation monitor. A base-game
 query check cannot establish that Aquatic content check. The private Linux
 `dlc-readers-base-r3` run passes both query checks on core23/profile5: actual
 refill scoring sees the hidden oxygen, and the habitat method sees physical
-liquid below a gas projection while retaining its caller's threshold. The
+liquid below a gas projection while retaining its caller's threshold. (Since
+the shown-phase decision of 2026-11-23 that cell, two fifths liquid, is shown
+as its liquid; from 1.13.5 the check asks for the physical liquid fraction
+and the caller's threshold whatever the cell shows.) The
 Aquatic creature check remains blocked on installed content. These are reader
 adapters: exact bionic tank admission/consumption, all-identity storage, aquatic conversions, rocket
 cargo and inter-asteroid transport remain separate work.

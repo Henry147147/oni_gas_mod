@@ -146,12 +146,18 @@ namespace MixedAtmospheres.Oni
         // oxygen is intact. A third bolt strikes a granite wall: the cells on
         // its path get radiation sickness, and where its payload goes is
         // recorded (ONI's own simulation handles a gas added to a solid).
+        // Loose solid nuclear waste resting in the arena.
+        private static double ArenaFrozenWaste() => Components.Pickupables.Items
+            .Where(item => item != null && !item.wasAbsorbed && !item.GetComponent<KPrefabID>().pendingDestruction &&
+                           item.GetComponent<PrimaryElement>() is PrimaryElement e && e.ElementID == SimHashes.SolidNuclearWaste)
+            .Where(item => { Grid.CellToXY(Grid.PosToCell(item), out var ix, out var iy); return ix >= x0 && ix < x0 + Width && iy >= y0 && iy < y0 + Height; })
+            .Sum(item => (double)item.GetComponent<PrimaryElement>().Mass);
         private static void SoRadbolt(int frame)
         {
-            if (Once(0, "arena")) { RequireSpacedOut(); Arena((x, y) => y == 5 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, 1.2f, 300f)); }
+            if (Once(0, "arena")) { RequireSpacedOut(); soSeries.Clear(); Arena((x, y) => y == 5 ? (SimHashes.Granite, 1000f, 300f) : (SimHashes.Oxygen, 1.2f, 300f)); }
             if (Once(6, "bolts"))
             {
-                recorded["oxygen"] = ArenaSpecies(SimHashes.Oxygen); recorded["fallout"] = ArenaSpecies(SimHashes.Fallout) + ArenaSpecies(SimHashes.NuclearWaste);
+                recorded["oxygen"] = ArenaSpecies(SimHashes.Oxygen); recorded["fallout"] = ArenaSpecies(SimHashes.Fallout) + ArenaSpecies(SimHashes.NuclearWaste) + ArenaFrozenWaste();
                 foreach (var (x, y, direction) in new[] { (0, 2, EightDirection.Right), (7, 2, EightDirection.Left), (0, 4, EightDirection.Up) })
                 {
                     var bolt = GameUtil.KInstantiate(Assets.GetPrefab(HighEnergyParticleConfig.ID), Grid.CellToPosCCC(Cell(x, y), Grid.SceneLayer.FXFront2), Grid.SceneLayer.FXFront2);
@@ -160,14 +166,27 @@ namespace MixedAtmospheres.Oni
                     particle.payload = 100; particle.SetDirection(direction);
                 }
             }
+            if (frame > 6 && frame < 100 && recorded.GetValueOrDefault("radbolt series frame", -1) != frame)
+            {
+                // Where the payload is, tick by tick (information): fallout gas, liquid waste, frozen waste.
+                recorded["radbolt series frame"] = frame;
+                double gas = ArenaSpecies(SimHashes.Fallout), liquid = ArenaSpecies(SimHashes.NuclearWaste), loose = ArenaFrozenWaste();
+                if (frame % 8 == 0 || Math.Abs(gas + liquid + loose - recorded.GetValueOrDefault("radbolt last", -1)) > 1e-4)
+                    soSeries.Add($"f{frame}: gas {gas:G5} liquid {liquid:G5} frozen {loose:G5}");
+                recorded["radbolt last"] = gas + liquid + loose;
+            }
             if (Once(100, "check"))
             {
-                var oxygen = ArenaSpecies(SimHashes.Oxygen) - recorded["oxygen"]; var fallout = ArenaSpecies(SimHashes.Fallout) + ArenaSpecies(SimHashes.NuclearWaste) - recorded["fallout"];
+                Record("radbolt payload series (information)", true, string.Join(" | ", soSeries));
+                // The payload is fallout gas at first, condenses to liquid waste as it cools, and at the arena's
+                // 300 K (the waste freezes at 300 K) ends as loose solid waste: all three are the payload.
+                var frozen = ArenaFrozenWaste();
+                var oxygen = ArenaSpecies(SimHashes.Oxygen) - recorded["oxygen"]; var fallout = ArenaSpecies(SimHashes.Fallout) + ArenaSpecies(SimHashes.NuclearWaste) + frozen - recorded["fallout"];
                 var sick = Db.Get().Diseases.GetIndex(Db.Get().Diseases.RadiationPoisoning.Id);
                 var germ = Enumerable.Range(0, 8).Count(x => Grid.DiseaseIdx[Cell(x, 2)] == sick && Grid.DiseaseCount[Cell(x, 2)] > 0);
                 var colliding = (200 - 0.1 * 7) * .001;
                 Record("the colliding bolts' payload arrived as fallout", fallout > .8 * colliding && fallout < .1001 + colliding,
-                    $"+{fallout:G6} kg fallout and nuclear waste (hot fallout condenses to waste) of about {colliding:G4} from the collision, 0.1 more at most if the wall bolt's reached the owner; fallout {ArenaSpecies(SimHashes.Fallout):G4}, waste {ArenaSpecies(SimHashes.NuclearWaste):G4}");
+                    $"+{fallout:G6} kg fallout and nuclear waste (hot fallout condenses to waste, which freezes at the arena's temperature) of about {colliding:G4} from the collision, 0.1 more at most if the wall bolt's reached the owner; fallout {ArenaSpecies(SimHashes.Fallout):G4}, waste {ArenaSpecies(SimHashes.NuclearWaste):G4}, frozen waste {frozen:G4}");
                 Record("the owned oxygen is intact", Math.Abs(oxygen) < 1e-6, $"{oxygen:+0.0e+0;-0.0e+0} kg");
                 Record("radiation sickness marked the bolts' path", germ > 0, $"{germ} of 8 cells in the colliding row hold radiation sickness");
                 LedgersClosed("radbolt");
@@ -274,9 +293,22 @@ namespace MixedAtmospheres.Oni
                 Record("the meltdown's mass is accounted in full", !double.IsNaN(meltDropTotal) && flying == 0 && (Vanilla || share >= .49 && share <= 1 + 1e-9),
                     $"storage emptied at {emptied:G6} kg (+10 kg of the game's meltdown bonus); site {meltDropTotal:F4} kg then, {endTotal:F4} kg at the end: {returned:G5} kg back = {share:P1} of {meltedAtEmpty:G6} kg (ONI's own simulation got 49% back); {flying} comets in flight{(Vanilla ? " (ONI's own simulation: recorded, not asserted)" : "")}; the rest is the game's own: {meltComets.Count} comet bodies of 1 kg destroyed on impact");
                 // Nothing leaves once the comets have landed: the last samples of the series equal each other.
+                // One thing does leave by the game's own rule: a corium tile beside open gas sublimates into
+                // nuclear waste at the element's efficiency (one half), in the owner's natural sublimation
+                // as in ONI's. A corium tile is therefore counted at what it will leave behind. The owned
+                // waste is read a few ticks after the tile shrank (overlapped pacing), so a sample may lack
+                // the product of the tile mass lost in the ticks just before it, and no more than that.
                 var tail = meltTotals.Skip(Math.Max(0, meltTotals.Count - 5)).ToList();
+                var tailFrames = meltTotalFrames.Skip(Math.Max(0, meltTotalFrames.Count - 5)).ToList();
+                var efficiency = (double)ElementLoader.FindElementByHash(SimHashes.Corium).sublimateEfficiency;
+                double Corium(int f) => meltCorium.TryGetValue(f, out var kg) ? kg : double.NaN;
+                var kept = tailFrames.Select((f, i) => tail[i] - (1 - efficiency) * Corium(f)).ToList();
+                var pending = tailFrames.Select(f => efficiency * Math.Max(0, Enumerable.Range(f - MeltReadLag, MeltReadLag + 1).Select(Corium).Where(kg => !double.IsNaN(kg)).DefaultIfEmpty(Corium(f)).Max() - Corium(f))).ToList();
                 if (!Vanilla)
-                    Record("the site loses no mass after the comets land", tail.Count == 5 && tail.Max() - tail.Min() <= 1e-6 * endTotal, $"last five samples {string.Join(", ", tail.Select(t => t.ToString("F6")))} kg");
+                    Record("the site loses no mass after the comets land",
+                        tail.Count == 5 && kept.All(k => !double.IsNaN(k)) && kept.Max() - kept.Select((k, i) => k + pending[i]).Min() <= 1e-6 * endTotal,
+                        $"last five samples {string.Join(", ", tail.Select(t => t.ToString("F6")))} kg; with corium tiles ({string.Join(", ", tailFrames.Select(f => Corium(f).ToString("F6")))} kg) counted at the {efficiency:P0} their sublimation leaves: {string.Join(", ", kept.Select(k => k.ToString("F6")))} kg, " +
+                        $"product still on its way at most {string.Join(", ", pending.Select(k => k.ToString("F6")))} kg");
                 LedgersClosed("meltdown");
                 Finish();
             }
@@ -287,6 +319,16 @@ namespace MixedAtmospheres.Oni
         private static readonly List<string> meltSeries = new List<string>();
         private static readonly List<double> meltTotals = new List<double>();
         private static int meltSeriesFrame = -100;
+        // The frames of meltTotals, the site's corium tiles at every traced frame, and how many ticks the owned cells' reading may trail a native tile.
+        private static readonly List<int> meltTotalFrames = new List<int>();
+        private static readonly Dictionary<int, double> meltCorium = new Dictionary<int, double>();
+        private const int MeltReadLag = 4;
+        private static double SiteCoriumTiles()
+        {
+            double kg = 0;
+            for (var y = 0; y < fillHeight; ++y) for (var x = 0; x < fillWidth; ++x) { var c = Cell(x, y); if (Grid.Solid[c] && Grid.Element[c].id == SimHashes.Corium) kg += Grid.Mass[c]; }
+            return kg;
+        }
         // Every mass in the site at once: owned fluid, native solid cells inside, loose items, the reactor's storage and its input pipe.
         // The arena's granite floor is left out (a comet can break a floor tile, which the game turns into half its mass of debris, as in ONI's own simulation).
         private static (double fluid, double solid, double items, double stored, double pipe) SoMeltdownBalance(Storage[]? storages, ConduitFlow flow)
@@ -315,11 +357,13 @@ namespace MixedAtmospheres.Oni
                 var b0 = SoMeltdownBalance(storages, flow); meltEmptied = meltPrevStored; meltDropTotal = b0.fluid + b0.solid + b0.items + b0.stored + b0.pipe;
             }
             meltPrevStored = nowStored;
+            meltCorium[frame] = SiteCoriumTiles();
             if (frame >= meltSeriesFrame + 10)
             {
+                meltTotalFrames.Add(frame);
                 meltSeriesFrame = frame; var b = SoMeltdownBalance(storages, flow);
                 meltTotals.Add(b.fluid + b.solid + b.items + b.stored + b.pipe);
-                meltSeries.Add($"{frame}: fluid {b.fluid:F2} solid {b.solid:F2} items {b.items:F2} stored {b.stored:F2} pipe {b.pipe:F2} total {b.fluid + b.solid + b.items + b.stored + b.pipe:F2} comets {meltComets.Count}");
+                meltSeries.Add($"{frame}: fluid {b.fluid:F2} solid {b.solid:F2} items {b.items:F2} stored {b.stored:F2} pipe {b.pipe:F2} total {b.fluid + b.solid + b.items + b.stored + b.pipe:F2} comets {meltComets.Count} corium tiles {meltCorium[frame]:F4}");
             }
             foreach (var c in UnityEngine.Object.FindObjectsByType<Comet>(UnityEngine.FindObjectsSortMode.None))
             {
