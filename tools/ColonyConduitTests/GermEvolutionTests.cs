@@ -68,10 +68,36 @@ static class GermEvolutionTests
             Check(ColonyGermPopulation.TryStep(population,expectedClock,n=>0,n=>new PipeAmount(-1e100),1,out var extinct)&&
                 extinct.Population.Sign==0&&extinct.Change.Plus(population).Sign==0,"Absolute death did not stop at the entire exact available population");
         }
+        // An expected population is one binary64 value after every step (user decision 2026-11-24):
+        // the exact result correctly rounded, with the rounding inside the booked change, so the
+        // accounts still close exactly; a longer count that arrives (a move, an older save) is
+        // rounded by its next step.
+        {
+            var arrived=PipeAmount.Zero;foreach(var part in new[]{1e6,3e-10,7e-40,5e-120,9e-250})arrived=arrived.Plus(new PipeAmount(part));
+            Check(arrived.Words==5,"Long germ count fixture is not five words");
+            var factor=Math.PI*1e-3;var mode=new GermPopulationClock(true,0);
+            Check(ColonyGermPopulation.TryStep(arrived,mode,n=>throw new Exception("Expected culture called native integer callback"),n=>n.Times(factor),.999f,out var first),"Long expected population refused");
+            var unrounded=arrived.Plus(arrived.Times(factor).Plus(arrived.Times((double).999f-1)));
+            Check(first.Population.Words==1&&BitConverter.DoubleToInt64Bits(first.Population.Value)==BitConverter.DoubleToInt64Bits(unrounded.Value),"Expected population is not the exact result correctly rounded");
+            Check(arrived.Plus(first.Change).Minus(first.Population).Sign==0,"Rounded population differs from population plus booked change");
+            var culture=first.Population;var born=PipeAmount.Zero;var dead=PipeAmount.Zero;var longest=0;var random=new Random(11);
+            for(var tick=0;tick<5000;++tick)
+            {
+                var rate=(random.NextDouble()-.5)*1e-2;var heat=(float)(1-random.NextDouble()*1e-3);
+                Check(ColonyGermPopulation.TryStep(culture,mode,n=>throw new Exception("Expected culture called native integer callback"),n=>n.Times(rate),heat,out var next),"Expected population step refused");
+                Check(next.Population.Words<=1&&culture.Plus(next.Change).Minus(next.Population).Sign==0,"Expected population grew beyond one word or left its account");
+                if(next.Change.Sign>0)born=born.Plus(next.Change);else dead=dead.Minus(next.Change);
+                longest=Math.Max(longest,Math.Max(born.Words,dead.Words));culture=next.Population;
+                if(culture.Sign==0)break;
+            }
+            Check(first.Population.Plus(born).Minus(dead).Minus(culture).Sign==0,"Birth and death accounts of a rounded culture do not close exactly");
+            Check(longest<=4,"Birth and death accounts of a rounded culture grow without bound: "+longest+" words");
+            Check(ColonyGermPopulation.Rounded(arrived).Words==1&&ColonyGermPopulation.Rounded(new PipeAmount(2.5)).Value==2.5&&ColonyGermPopulation.Rounded(PipeAmount.Zero).Sign==0,"Rounding changed a one-word or empty count");
+        }
         Check(ColonyGermPopulation.TryStep(new PipeAmount(.5),new GermPopulationClock(false,.75f),n=>0,n=>PipeAmount.Zero,1,out var transitioned)&&
             transitioned.Population.Value==1.25&&transitioned.Change.Value==.75&&transitioned.Clock.Expected,"Pending native residue was lost or left unbooked at expected-mode transition");
         Check(!ColonyGermPopulation.TryStep(new PipeAmount(double.MaxValue),new GermPopulationClock(true,0),n=>0,n=>n,2,out _),"Unrepresentable biological birth overflow was silently clipped");
         try{_ = Step(1,float.NaN,0,1);throw new Exception("Malformed rounding accepted");}catch(ArgumentOutOfRangeException){}
-        Console.WriteLine("PASS common germ evolution: native integer parity, expected fractional/wide/tiny populations, per-ID birth/death closure, extinction limiting, explicit overflow refusal and cold mode/rounding continuation (runtime inactive)");
+        Console.WriteLine("PASS common germ evolution: native integer parity, expected fractional/wide/tiny populations of one correctly rounded word, per-ID birth/death closure, extinction limiting, explicit overflow refusal and cold mode/rounding continuation (runtime inactive)");
     }
 }

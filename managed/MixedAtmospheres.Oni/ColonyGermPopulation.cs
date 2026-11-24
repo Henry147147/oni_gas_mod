@@ -33,6 +33,24 @@ namespace MixedAtmospheres.Oni
     }
     internal static class ColonyGermPopulation
     {
+        // An expected population is kept as one binary64 value (user decision
+        // 2026-11-24: germ counts need not be exact). The exact result of a
+        // step is rounded to the nearest double, and the step's booked change
+        // is the exact difference between that and the population before, so
+        // population + change = next population still holds exactly and the
+        // birth and death accounts close. Unrounded, a count grew by a word
+        // with every step until it reached the smallest double (about twenty
+        // words), and each step's exact sums cost in proportion: the pipes'
+        // germ steps were the largest part of the mod's time in a tick frame
+        // (docs/playtest-1.13.5.md). A count that came from a move or a
+        // mixture can still be a few words long until its next step.
+        internal static PipeAmount Rounded(PipeAmount exact)
+        {
+            if(exact.Words<=1)return exact;
+            var value=exact.Value;
+            if(double.IsInfinity(value))throw new InvalidOperationException("Pipe account overflow.");
+            return new PipeAmount(value);
+        }
         // Integer cultures use the native public material equation. Fractional
         // and wide cultures use a public-descriptor expected-population flux:
         // absolute under-population death, proportional normal/over-population
@@ -63,6 +81,7 @@ namespace MixedAtmospheres.Oni
                 var after=population.Plus(change);
                 if(change.Sign<0&&after.Sign<=0){change=population.Negated();after=population.Plus(change);}
                 if(after.Sign<0)throw new InvalidOperationException("Germ death exceeded exact population.");
+                if(after.Words>1){after=Rounded(after);change=after.Minus(population);}
                 next=new GermPopulationStep(after,change,new GermPopulationClock(true,0));return true;
             }
             catch(InvalidOperationException){return false;}

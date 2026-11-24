@@ -224,6 +224,8 @@ namespace MixedAtmospheres.Oni
                         if(expected.Sign<0&&germ.Amount.Plus(expected).Sign<=0)expected=germ.Amount.Negated();
                         var population=germ.Amount.Plus(expected);
                         if(population.Sign<0)throw new InvalidOperationException("Stored germ evolution overdraws its exact population.");
+                        // One binary64 value a culture, as in the pipes (ColonyGermPopulation.Rounded).
+                        if(population.Words>1){population=ColonyGermPopulation.Rounded(population);expected=population.Minus(germ.Amount);}
                         changes.Add(new PreparedCulture{Host=host,Id=germ.Id,Step=new GermPopulationStep(population,expected,new GermPopulationClock(true,0)),
                             Context=new StoredGermContext((ushort)inventory.Dominant,0,1,false)});
                     }

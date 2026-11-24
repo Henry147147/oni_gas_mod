@@ -1577,7 +1577,16 @@ by mass fraction; apply the temperature effect once per identity. Fractional or
 wide populations enter expected-population mode until extinction. That mode
 uses public density cutoffs and half-life factors directly: under-population
 death is an absolute rate, while normal/over-population changes are proportional
-to the exact expansion population. Native pending residue is booked as an
+to the population. Since 1.13.5 an expected population is one binary64 value
+(user decision 2026-11-24: germ counts need not be exact): the step's exact
+result is rounded to the nearest double and the booked change is the exact
+difference between that and the population before, so every per-ID account
+still closes exactly. Until then a count kept every bit of every step and
+grew to about twenty words (down to the smallest double), and the exact sums
+on it made the pipes' germ steps the largest part of the mod's time in a tick
+frame ([the measurement](playtest-1.13.5.md)). A count that a move or a
+mixture made a few words long is rounded by its next step; an older save's
+long counts likewise, at their first step. Native pending residue is booked as an
 actual change on mode transition. Every actual positive/negative change is a
 per-ID birth/death; deaths stop at the available population. Unrepresentable
 birth overflow refuses without changing the caller's population. No trace is
