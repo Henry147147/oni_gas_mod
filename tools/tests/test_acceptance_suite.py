@@ -257,11 +257,35 @@ class SettingsClickTests(unittest.TestCase):
         for selected, offset in enumerate((0, 86, 173)):
             pixels = bytearray(neutral * 174)
             pixels[3 * offset:3 * offset + 3] = highlight
-            with self.subTest(selected=selected), mock.patch.object(desktop, "shot"), \
+            with self.subTest(selected=selected), mock.patch.object(desktop, "shot"), mock.patch.object(desktop, "park"), \
                     mock.patch.object(suite.subprocess, "check_output", return_value=bytes(pixels)):
                 desktop.shot_settings_tab(suite.SETTINGS_SHOTS[selected], selected)
                 with self.assertRaisesRegex(RuntimeError, "requested Settings tab"):
                     desktop.shot_settings_tab("wrong-tab", (selected + 1) % 3)
+
+    def test_settings_shot_parks_the_pointer_first(self):
+        # The pointer rests where the previous game's last click left it (the Performance
+        # tab after a settings run); its hover fill made the first screenshot of the
+        # next run fail (1.13.0 and 1.13.3 release runs). The check itself stays strict.
+        desktop = object.__new__(suite.Desktop)
+        desktop.output, desktop.bin, desktop.env = self.output, Path("/bin"), {}
+        calls = []
+        neutral, highlight, hover = bytes((87, 87, 102)), bytes((140, 89, 118)), bytes((111, 110, 128))
+        clean = bytearray(neutral * 174); clean[0:3] = highlight
+        hovered = bytearray(clean); hovered[3 * 173:3 * 173 + 3] = hover
+
+        def run(*command):
+            calls.append("geometry" if "getdisplaygeometry" in command else "move " + " ".join(command[-2:]) if "mousemove" in command else "other")
+            return "1920 1080"
+
+        with mock.patch.object(desktop, "run", side_effect=run), mock.patch.object(desktop, "shot", side_effect=lambda name: calls.append("shot")), \
+                mock.patch.object(suite.time, "sleep"), mock.patch.object(suite.subprocess, "check_output", return_value=bytes(clean)):
+            desktop.shot_settings_tab("solver-readonly", 0)
+        self.assertEqual(calls, ["geometry", "move 900 328", "shot"])
+        with mock.patch.object(desktop, "park"), mock.patch.object(desktop, "shot"), \
+                mock.patch.object(suite.subprocess, "check_output", return_value=bytes(hovered)):
+            with self.assertRaisesRegex(RuntimeError, "requested Settings tab"):
+                desktop.shot_settings_tab("solver-readonly", 0)
 
     def test_wrong_resolution_aborts_before_clicking_game(self):
         for resolution, geometry in (("640x480", "1920 1080"),

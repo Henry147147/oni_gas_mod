@@ -1313,7 +1313,18 @@ class Desktop:
         self.run("ffmpeg", "-loglevel", "error", "-y", "-i", str(full), "-vf", "scale=1280:720", str(self.output / (name + ".png")))
         full.unlink(missing_ok=True)
 
+    def park(self) -> None:
+        """Rest the pointer on the settings window's title, where it highlights nothing.
+
+        The pointer stays on the shared display where the last click of the
+        previous game left it; over a tab it gives that tab its hover fill, and
+        the tab check below then finds two different inactive tabs."""
+        width, height = map(int, self.run(str(self.bin / "xdotool"), "getdisplaygeometry").split())
+        self.run(str(self.bin / "xdotool"), "mousemove", str(600 * width // 1280), str(219 * height // 720))
+        time.sleep(.4)
+
     def shot_settings_tab(self, name: str, selected: int) -> None:
+        self.park()
         self.shot(name)
         # On the pinned desktop the three leftmost Advanced tabs have flat
         # fills. Sample inside their top edges, clear of text and the pointer.
