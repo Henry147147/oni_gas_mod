@@ -50,6 +50,32 @@ internal static unsafe class OverlayEquivalenceTests
         Check(catalogue, check, seed: 1, radiation: true, x: 3, y: 2, width: 14, height: 8, gridWidth: 20, gridHeight: 12);
         Check(catalogue, check, seed: 2, radiation: false, x: 0, y: 0, width: 31, height: 17, gridWidth: 31, gridHeight: 17);
         Check(catalogue, check, seed: 3, radiation: true, x: 5, y: 0, width: 1, height: 9, gridWidth: 7, gridHeight: 9);
+        // A full pass made in parts on several threads: the same planes, events and runs as the
+        // single loop's, whatever the part size, and the same run passes after it.
+        if (ColonyOverlay.SeveralThreads)
+        {
+            int savedPart = ColonyOverlay.PartViews, savedFrom = ColonyOverlay.ParallelViews;
+            try
+            {
+                foreach (var part in new[] { 1, 2, 7, 64, 100000 })
+                    foreach (var (seed, radiation, x, y, width, height, gridWidth, gridHeight) in new[] { (11, true, 3, 2, 14, 8, 20, 12), (12, false, 0, 0, 31, 17, 31, 17), (13, true, 5, 0, 1, 9, 7, 9), (14, true, 2, 1, 97, 61, 101, 64) })
+                    {
+                        var world = Generate(new Random(seed), catalogue, radiation, x, y, width, height, gridWidth, gridHeight);
+                        ColonyOverlay.Reset(); ColonyOverlay.ParallelViews = int.MaxValue;
+                        var single = Overlay(world.Clone(), catalogue, unchanged: false); var singleRuns = ColonyOverlay.RunTriples();
+                        check(ColonyOverlay.ParallelPasses == 0);
+                        ColonyOverlay.Reset(); ColonyOverlay.ParallelViews = 1; ColonyOverlay.PartViews = part;
+                        var parted = Overlay(world.Clone(), catalogue, unchanged: false);
+                        check(ColonyOverlay.ParallelPasses == 1 && ColonyOverlay.RunTriples().AsSpan().SequenceEqual(singleRuns));
+                        Same(single, parted, check); Same(Reference(world.Clone(), catalogue), parted, check);
+                    }
+                ColonyOverlay.ParallelViews = 1; ColonyOverlay.PartViews = 5;
+                Check(catalogue, check, seed: 21, radiation: true, x: 3, y: 2, width: 14, height: 8, gridWidth: 20, gridHeight: 12);
+                Check(catalogue, check, seed: 22, radiation: false, x: 0, y: 0, width: 31, height: 17, gridWidth: 31, gridHeight: 17);
+                check(ColonyOverlay.ParallelPasses > 0);
+            }
+            finally { ColonyOverlay.PartViews = savedPart; ColonyOverlay.ParallelViews = savedFrom; }
+        }
         // A missing entry keeps the original loop (no table).
         var broken = new List<Element>(catalogue) { null! };
         check(ColonyOverlay.SolidElements(broken) == null);
