@@ -807,7 +807,18 @@ MacClosedSettings settings_of(const MAOniColonyConfig& c, const MAOniColonyOptio
 // and a film on a floor looked like air, and the game's own tools (the mop,
 // a liquid pump's intake) could not find them. A cell without gas shows its
 // liquid whatever its share.
+//
+// Since 1.13.3 (the user's playtest of 2026-11-24: 12 and 24 g of polluted
+// water hanging in a shaft's air drew whole liquid tiles) so small a liquid
+// shows only where it rests: on a solid cell, the grid's floor, a closed
+// face, a tile that holds liquid up (an airflow tile), or a cell that is at
+// least half liquid (a pool). Liquid in mid-air shows from 0.1 % of the cell
+// (about 1 kg of water: a stream, not a trace); below that the cell shows
+// its gas, and the readings still report the liquid.
 constexpr double shown_liquid_fraction = 1e-5;
+constexpr float resting_liquid_fraction = 1e-5f, airborne_liquid_fraction = 1e-3f, pool_fraction = .5f;
+// The rule without the cell's surroundings (the whole-cell germ medium of the
+// profiles before carriers).
 constexpr bool shows_liquid(double liquid_volume, double cell_volume, double gas_mass) noexcept {
     return liquid_volume >= shown_liquid_fraction * cell_volume || gas_mass == 0;
 }
@@ -1025,7 +1036,9 @@ Projection project(const Session& s, const MacClosedWorld& w) {
             if (registry[k].phase == Phase::gas) { gas += mass; if (mass > best_gas) { best_gas = mass; gas_k = k; } }
             else { liquid += mass; if (mass > best_liquid) { best_liquid = mass; liquid_k = k; } }
         }
-        const bool liquid_dominant = shows_liquid(reading.liquid_volume_m3, st.grid.volume_m3(), gas);
+        // By the share alone, on the view's own binary32 value; shown_phase_by_support
+        // below then settles the small liquids beside gas.
+        const bool liquid_dominant = static_cast<float>(reading.liquid_volume_m3 / st.grid.volume_m3()) >= resting_liquid_fraction || gas == 0;
         v.element_index = c.materials[liquid_dominant ? liquid_k : gas_k].game.native_index;
         v.flags |= (gas > 0 ? MA_ONI_COLONY_VIEW_GAS : 0U) | (liquid > 0 ? MA_ONI_COLONY_VIEW_LIQUID : 0U);
         v.mass_kg = static_cast<float>(liquid_dominant ? liquid : gas);
@@ -1061,6 +1074,36 @@ Projection project(const Session& s, const MacClosedWorld& w) {
         for (std::size_t i = block * block_size; i < std::min(st.cells.size(), (block + 1) * block_size); ++i)
             if (!reuse || !reuse_cell(i, block, at)) project_cell(i, block);
     });
+    // The shown phase of a small liquid beside gas (shown_liquid_fraction):
+    // liquid where it rests, gas in mid-air. Every such cell is decided again
+    // from the finished views, a reused one too, since what lies under a cell
+    // may have changed while the cell did not. A cell's flags and liquid
+    // share are not changed here, so the blocks do not depend on each other.
+    {
+        const auto width = st.grid.width; const auto both = MA_ONI_COLONY_VIEW_GAS | MA_ONI_COLONY_VIEW_LIQUID;
+        mac_kernel::pool_for(threads).run(blocks, [&](std::size_t block) {
+            for (std::size_t i = block * block_size; i < std::min(st.cells.size(), (block + 1) * block_size); ++i) {
+                auto& v = views[i];
+                if ((v.flags & both) != both || !(v.liquid_fraction >= resting_liquid_fraction) || v.liquid_fraction >= airborne_liquid_fraction) continue;
+                bool rests = i < width;
+                if (!rests) {
+                    const auto below = i - width; const auto& under = views[below];
+                    rests = st.grid.walls[below] || (below < s.blocking.size() && s.blocking[below]) ||
+                        (!st.grid.closed_y.empty() && st.grid.closed_y[st.grid.y_face(i % width, i / width)]) ||
+                        ((under.flags & MA_ONI_COLONY_VIEW_LIQUID) && (!(under.flags & MA_ONI_COLONY_VIEW_GAS) || under.liquid_fraction >= pool_fraction));
+                }
+                const auto& m = st.cells[i].mixture;
+                double held = 0, best = 0; std::size_t shown = SIZE_MAX;
+                for (std::size_t k = 0; k < registry.size(); ++k) {
+                    const double mass = m.masses[k];
+                    if (mass == 0 || (registry[k].phase == Phase::gas) == rests) continue;
+                    held += mass; if (mass > best) { best = mass; shown = k; }
+                }
+                if (shown == SIZE_MAX) continue;
+                v.element_index = c.materials[shown].game.native_index; v.mass_kg = static_cast<float>(held);
+            }
+        });
+    }
     out.cells_ms = lap_ms();
     // The blocks' readings and parts joined in block order: each block's
     // place found first, then each block copied into it on the pool.

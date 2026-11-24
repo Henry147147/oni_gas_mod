@@ -1,5 +1,7 @@
 # Feature completion work
 
+**[1.13.3](playtest-1.13.3.md).** 1.13.2 with the first fix from the user's Windows playtest: a liquid below 0.1 % of its tile shows only where it rests (a floor, an airflow tile, a pool), so the mist the solver carries in a colony's air no longer draws liquid tiles in mid-air.
+
 **[1.13.2](playtest-1.13.2.md).** The 1.13 candidate meant for play: 64.9 ms a tick (2.22× by the replay estimate) on the November 22 colony with the fluid on every tick, from a direct pressure solve for large cave-like regions, the tick's stages on several workers and the faster solver defaults (pressure tolerance 1e-6, one flow part, trace removal from 1 mg; the earlier values are the Exact preset). Reservoirs give out their stored mixture. 3× (41.7 ms) remains the goal; a further round of exact work on the regions and on the work around them is in progress.
 
 **[1.13.1 and the speed study](speed-study-2026-11-23.md).** The same results with less work around each tick: 151 to 137 ms on the November 22 colony with the fluid on every tick, 51 to 38.5 ms on 1 tick in 8, which is the first configuration at an estimated 3×. The study measures every accuracy setting, finds that the trace removal threshold at 1 mg and one flow part per step take the full-rate tick to 90 ms (1.74×), and names cutting large open regions into pieces as the next structural step toward 2× and more without slowing the fluid.

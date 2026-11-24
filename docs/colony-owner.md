@@ -251,6 +251,21 @@ share of the cell's volume at which the readings report liquid at all, 0.001 %
 friendly readings as a trace gas is, and the cell shows its gas. A cell without
 gas shows its liquid whatever its share.
 
+**So small a liquid shows only where it rests** (version 1.13.3, the user's
+playtest of 2026-11-24: 12 and 24 g of polluted water in the air of a ladder
+shaft drew whole liquid tiles). The solver gives a liquid its own fall only
+from a thousandth of a cell (`sinking_face` in `layering.hpp`); less than that
+is mist, carried in its cell's gas, and a colony's air holds it in thousands
+of cells. A liquid below 0.1 % of its cell (about 1 kg of water) therefore
+shows only when the cell under it is solid, the grid's floor, behind a closed
+face, a tile that holds liquid up (an airflow tile), or at least half liquid
+(a pool): a film on a floor, a puddle, the surface of a pool. In mid-air the
+cell shows its gas and its gas's mass, and the readings and the hover still
+report the liquid. From 0.1 % a liquid shows wherever it is: a stream falling
+through air is liquid. `project` decides this after the cells' views are made,
+from the cell under each one, for reused views as well; on the November 22
+colony 105 of 1,132 such cells are in mid-air.
+
 Until 1.13.0 a cell showed liquid only from half its volume. A puddle under
 air, a film on a floor and the top cell of a pool then looked like air, the
 hover reported a liquid nobody could see, and the game's own tools could not

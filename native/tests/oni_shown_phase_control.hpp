@@ -50,4 +50,41 @@ void shown_phase_control() {
     stop();
     std::cout<<"PASS shown phase: a film of "<<100*film_fraction<<" % of its cell shows as water beside its air, a trace of "<<100*trace_fraction
         <<" % shows as the air, a pool and a gas-free drop show as water; native freezing takes only the pool and the drop\n";
+    // Since 1.13.3 a small liquid beside gas shows only where it rests
+    // (the user's playtest of 2026-11-24: 12 and 24 g of polluted water in a
+    // shaft's air drew whole liquid tiles). Three sealed columns three cells
+    // high, without gravity so that nothing moves, the middle cell holding
+    // the liquid: 50 g between two cells of air, 2 kg between two cells of
+    // air, and 50 g over a cell full of water (part of it joins that pool).
+    {
+        constexpr std::uint32_t tall=5;
+        const auto cell=[](std::uint32_t x,std::uint32_t y){return x+y*width;};
+        MAOniColonyConfig still=cfg;still.grid_height=still.height=tall;still.gravity_m_per_s2=0;
+        std::vector<MAOniColonyCell> column(width*tall,MAOniColonyCell{0,MA_ONI_COLONY_SOLID,0,0,0,0});
+        for(const std::uint32_t x:{1U,3U,5U})for(std::uint32_t y=1;y<=3;++y)
+            column[cell(x,y)]=x==5&&y==1?MAOniColonyCell{water,MA_ONI_COLONY_FLUID,999.f,300,0,0}:MAOniColonyCell{oxygen,MA_ONI_COLONY_FLUID,1.3f,300,0,0};
+        set_diseases({},{},0);start(still,mats,column,1);
+        const std::vector<MAOniColonyTransfer> wet{{cell(1,2),water,MA_ONI_COLONY_INJECT,0,-1,0,.05,300,0},{cell(3,2),water,MA_ONI_COLONY_INJECT,0,-1,0,2.,300,0},
+            {cell(5,2),water,MA_ONI_COLONY_INJECT,0,-1,0,.05,300,0}};
+        queue_transfers(wet);
+        const std::vector<std::uint32_t> awake{cell(1,2),cell(3,2),cell(5,2)};
+        for(std::uint64_t frame=1;frame<=3;++frame) {
+            (void)queue_activity(status().session,dt,awake,{});
+            advance(frame,dt,2);wait();
+            if(status().state!=1)throw std::runtime_error("shown phase support control faulted: "+std::string(status().error));
+        }
+        std::vector<MAOniColonyCellView> seen(width*tall);MAOniColonyStatus now{};
+        copy(now,seen.data(),static_cast<std::uint32_t>(seen.size()));
+        const auto& hanging=seen[cell(1,2)];const auto& stream=seen[cell(3,2)];const auto& resting=seen[cell(5,2)];
+        require(hanging.element_index==oxygen && (hanging.flags&both)==both && hanging.liquid_fraction>4e-5f && hanging.liquid_fraction<6e-5f && std::abs(hanging.mass_kg-1.3f)<1e-3f,
+            "50 g of water in mid-air is not shown as its air, with the air's mass");
+        require(stream.element_index==water && (stream.flags&both)==both && stream.liquid_fraction>1.5e-3f && std::abs(stream.mass_kg-2.f)<1e-2f,
+            "2 kg of water in mid-air is not shown as water");
+        require(resting.element_index==water && (resting.flags&both)==both && resting.liquid_fraction>1e-5f && resting.liquid_fraction<6e-5f &&
+            resting.mass_kg>.01f && resting.mass_kg<=.0501f && seen[cell(5,1)].element_index==water && seen[cell(5,1)].liquid_fraction>=.5f,
+            "a film of water resting on a pool is not shown as water");
+        for(const std::uint32_t y:{1U,3U})require(seen[cell(1,y)].element_index==oxygen && seen[cell(1,y)].liquid_fraction<1e-5f,"the air around the hanging water is not shown as air");
+        stop();
+        std::cout<<"PASS shown phase by support: 50 g of water in mid-air shows as its air, 2 kg in mid-air and a film of "<<1000*static_cast<double>(resting.mass_kg)<<" g resting on a pool show as water\n";
+    }
 }

@@ -58,6 +58,9 @@ few that your task touches, starting here.
   `publish/update-1.13.0` and `releases/1.13.0`; every release step has
   passed ([what ran](docs/playtest-1.13.0.md#staged-package)) and the upload
   waits for the user's go-ahead.
+  [1.13.3](docs/playtest-1.13.3.md) is 1.13.2 with the first fix from the
+  user's Windows playtest of it (a liquid trace in mid-air no longer draws a
+  liquid tile) and is the candidate staged for upload.
   [1.13.2](docs/playtest-1.13.2.md) is the 1.13 candidate meant for play
   (user decisions 2026-11-23; 1.13.0 and 1.13.1 were bookkeeping builds and
   were never uploaded): the speed work that keeps the fluid on every tick
