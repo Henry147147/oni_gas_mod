@@ -117,8 +117,15 @@ namespace MixedAtmospheres.Oni
                 for (var k = 1; k < soEdge.Count; ++k)
                 {
                     if (soEdge[k - 1].count <= 0) continue;
-                    var predicted = Math.Max(0, soEdge[k - 1].count - soEdge[k - 1].rads * rate);
-                    worst = Math.Max(worst, Math.Abs(soEdge[k].count - predicted)); ++steps;
+                    // The owner kills with the field it holds when its step begins: the one handed over with
+                    // the last publication before that. Under overlapped pacing a tick is posted before the
+                    // tick before it has been published, so that is the radiation of the frame before the
+                    // one this count was read in; when the owner is idle at the post, the frame's own. The
+                    // lamp's radiation wavers by several rads from tick to tick (it did not when this
+                    // check was written against the frame's own value alone), so the two differ.
+                    double Miss(float rads) => Math.Abs(soEdge[k].count - Math.Max(0, soEdge[k - 1].count - rads * rate));
+                    var miss = Miss(soEdge[k - 1].rads); if (k >= 2) miss = Math.Min(miss, Miss(soEdge[k - 2].rads));
+                    worst = Math.Max(worst, miss); ++steps;
                 }
                 Record("germs in an irradiated cell fall by radiation x kill rate each tick", steps >= 3 && worst <= 6 && soEdge.Last().count == 0,
                     $"kill rate {rate:G3}; edge cell counts {string.Join(", ", soEdge.Select(e => $"{e.count} at {e.rads:F1} rads"))}; largest step deviation {worst:G3} germs over {steps} steps");
