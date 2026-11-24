@@ -429,16 +429,24 @@ namespace MixedAtmospheres.Oni
                 ToStorageKg = now.In - first.In, FromStorageKg = now.Out - first.Out };
         }
         private static System.DateTime colonyOwnerWallStart;
-        // Seconds between owner reports (0: every Unity frame, as the acceptance runs read it).
+        // The owner report is built and written on the game thread. A small
+        // scene writes it every Unity frame, as it always did; a large colony's
+        // report takes a tenth of a second, so the next one waits fifty times
+        // as long as the last one took: the report never costs the run more
+        // than a fiftieth of its time. MA_COLONY_REPORT_SECONDS=N sets a longer
+        // least spacing for measurements.
+        private const float OwnerReportShare = 50;
         private static readonly float ownerReportSeconds = float.TryParse(System.Environment.GetEnvironmentVariable("MA_COLONY_REPORT_SECONDS"),
             System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out var spacing) && spacing > 0 ? spacing : 0;
         private static float nextOwnerReport;
-        private static bool OwnerReportDue()
+        internal static long OwnerReports { get; private set; }
+        internal static double OwnerReportMilliseconds { get; private set; }
+        private static bool OwnerReportDue() => Time.realtimeSinceStartup >= nextOwnerReport;
+        private static void OwnerReportWritten(long begun)
         {
-            if (ownerReportSeconds == 0) return true;
-            var now = Time.realtimeSinceStartup;
-            if (now < nextOwnerReport) return false;
-            nextOwnerReport = now + ownerReportSeconds; return true;
+            var seconds = (System.Diagnostics.Stopwatch.GetTimestamp() - begun) / (double)System.Diagnostics.Stopwatch.Frequency;
+            ++OwnerReports; OwnerReportMilliseconds = 1000 * seconds;
+            nextOwnerReport = Time.realtimeSinceStartup + Math.Max(ownerReportSeconds, (float)(OwnerReportShare * seconds));
         }
         private static void ColonyOwnerScene()
         {
@@ -475,6 +483,7 @@ namespace MixedAtmospheres.Oni
             var reported = faulted || scenarioDone || OwnerReportDue();
             void WriteOwnerReport()
             {
+            var reportBegun = System.Diagnostics.Stopwatch.GetTimestamp();
             var owner = new {
                 SchemaVersion = 1, status.State, Faulted = faulted, status.Session, status.CompletedFrames, status.Substeps, status.RejectedAttempts, status.Species,
                 status.TimeSeconds, status.LastAdvanceMilliseconds, status.MaximumAdvanceMilliseconds, status.StageMilliseconds,
@@ -487,6 +496,8 @@ namespace MixedAtmospheres.Oni
                 ClusterWorlds=ColonyClusterWorlds.Report(),
                 ReleasedOutsideCells=ColonyOwner.ReleasedOutsideCells,ReleasedOutsideKg=ColonyOwner.ReleasedOutsideKg,
                 ColonyOwner.SpaceExposureDeferred,
+                OwnerReports, OwnerReportMilliseconds,
+                RadiationFields = ColonyRadiationGerms.Fields, RadiationUnchanged = ColonyRadiationGerms.Unchanged, OverlayParallelPasses = ColonyOverlay.ParallelPasses,
                 ColonyPacing.HeldTicks, ColonyPacing.UnityFrames, ColonyPacing.OwnerRate, ColonyPacing.TimeScale,
                 WallSeconds = (System.DateTime.UtcNow - colonyOwnerWallStart).TotalSeconds,
                 Performance = ColonyPerformanceLog.Timerun(),
@@ -522,6 +533,7 @@ namespace MixedAtmospheres.Oni
                 Error = status.Error
             };
             ReportJson.WriteAtomic(Path.Combine(OutputDirectory, "colony-owner.json"), owner);
+            OwnerReportWritten(reportBegun);
             }
             if (reported) WriteOwnerReport();
             if (faulted) throw new InvalidOperationException("Colony owner faulted: " + status.Error);
