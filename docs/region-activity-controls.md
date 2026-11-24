@@ -1,22 +1,42 @@
 # Region activity integration controls
 
-**State on 2026-11-24.** This fixture and its control no longer pass, with
-1.13.3's code and with 1.13.4's alike, and no acceptance tier runs either:
+**State on 2026-11-24.** This fixture and its control pass again. Both had
+stopped passing with overlapped pacing (`ca77650`, 2026-11-06), whose readers
+see the owner two frames late; no acceptance tier runs either. The product
+was right throughout: the native mask was always what the census submitted.
+The fixture and the control read it at the wrong moment:
 
-- `activity-lifecycle` without a control passes 12 of its 16 checks. The four
-  that fail concern paused (zero-time) refreshes and the staged frame: "OnSpawn
-  publishes the real creature's actor mask", "inactive moved actor remains in
-  the full census", "motion touches its previous footprint at zero time" and
-  "uninterrupted resume delivers the prepared frame once".
-- With `MA_COLONY_ACTIVITY_CONTROL=1` the comparison of the published activity
-  mask with the submitted census (described below) stops the owner at the
-  third frame, in the fixture (cell 45696) and on the November 22 colony
-  (cell 17252).
+- The control compared the readers' mask with the census of the owner's
+  *latest* frame (the sequence `ma_oni_colony_copy_activity` names), up to two
+  frames newer, and stopped the owner at its first comparison (cell 45696 in
+  the fixture, 17252 on the November 22 colony). It now compares the census
+  the readers' own frame committed: the latest's sequence less the frames
+  between the two.
+- The flush of the activation stage pins the readers at the owner's latest
+  frame, two frames ahead of them, so the next stage ran in the same update,
+  before Unity had spawned the activated Puft. With no creature in its
+  census, "OnSpawn publishes the real creature's actor mask", "inactive moved
+  actor remains in the full census" and "motion touches its previous
+  footprint at zero time" failed. That stage now waits for the next game
+  tick, as it did with serial pacing.
+- "uninterrupted resume delivers the prepared frame once" was evaluated at
+  the tick that posts the staged frame, when the readers, held at the saved
+  frame, cannot show it yet. It now waits until they do (two ticks), or fails
+  one tick later.
 
-The cause has not been looked for. The census itself has its own comparison
-since 1.13.4, `MA_COLONY_CENSUS_CONTROL=1`
-([what it checks](colony-owner.md#main-thread-smoothness)), which passes in the
-fixture, on that colony and in the gameplay batches.
+No check expression or bound changed. With these, `activity-lifecycle`
+passes all 16 checks without a control, with `MA_COLONY_ACTIVITY_CONTROL=1`
+(31 mask checks over 8,303 cells, none busy or dropped, no fault) and with
+`MA_COLONY_CENSUS_CONTROL=1`, which since 1.13.4 compares every census with a
+complete one ([what it checks](colony-owner.md#main-thread-smoothness)). The
+cold load of the control run's `activity-pending.sav` (paused resave, 80
+frames, control on) re-encodes the owner image, keeps the complete owner bytes
+across the resave, claims the saved frame once and rebinds its one actor
+request (none released); the ordinary load of the resaved file restores the
+writer's owner hash. Both resume 80 frames with closed ledgers and 79 mask
+checks, without a fault. Migration counts stay 0, as in the 2026-10-28 runs.
+On the November 22 colony the control now runs 300 ticks with 300 mask
+checks over 3.9 million cells, none busy or dropped, and no fault.
 
 `activity-lifecycle` is a separate private game fixture. It does not change the
 inputs or bounds of an existing scenario. Run it against the integrated profile9
@@ -87,8 +107,9 @@ packet claim, with no creature/state-machine deserialization errors.
 
 `MA_COLONY_ACTIVITY_CONTROL=1` also checks real registered actors' occupied cells,
 building placement caches and conduit utility cells. For observed completed
-packets it compares the submitted actor census, projected through the same
-publication's fluid/wall topology, against the native sampled mask. `MaskChecks`,
+packets it compares the submitted actor census that the readers' publication
+committed, projected through that publication's fluid/wall topology, against
+the native mask sampled from it. `MaskChecks`,
 `MaskCellsChecked`, `MaskBusy` and `DroppedChecks` describe this sampled coverage;
 not every submitted frame is necessarily observed. Static world-generation debris
 is excluded from persistent actor presence. Its actual inputs and thermal contacts
