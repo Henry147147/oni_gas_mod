@@ -45,4 +45,22 @@ stopped for this fix.
 
 ## Staged package
 
-Not staged yet.
+Build `6a116e5` is on the private share as `publish/update-1.13.3` and
+`releases/1.13.3` since 2026-11-24 00:46 UTC, on hold for the user's decision
+and go-ahead. Nothing is uploaded.
+
+| Step | Result |
+| --- | --- |
+| Linux (Ubuntu 22.04 toolchain) and Windows release builds, package, archives | verified |
+| Workshop dry run | passed |
+| Load matrix, builds 744825, 763796 and 764025, Linux and the Windows player under Proton | 6 of 6 |
+| Release tier, 47 steps | 44 passed in the first run; the two Windows settings steps passed when run again (the screenshot check that also failed once for 1.13.0); `linux-b13` failed |
+| Patch tier, 6 steps | 5 passed; the same batch failed |
+
+The failed batch is one check of the new `reservoir-mix` scenario, not the
+mod. After `pipe-throughput` in the same colony, the scenario compared the
+colony-wide machine output counter (372 kg, the earlier scenario's reservoir
+included) with its own 90 kg; its other seven checks passed there. `03a018a`
+corrects the check (validation scenario only), and the whole batch passes
+with it (`reservoir-mix` 8 of 8). The staged build does not contain that
+correction.
