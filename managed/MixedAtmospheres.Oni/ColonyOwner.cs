@@ -517,6 +517,7 @@ namespace MixedAtmospheres.Oni
             catch (Exception error) { ColonyFault.Raise("owner publication", error); return IntPtr.Zero; }
             finally { ColonyFrameLog.Add(ColonyFrameLog.Part.Publication, begun); ColonyFrameLog.Published(); ColonyFrameLog.HeapDone(heap, collectionsBefore); }
         }
+        private static readonly bool presentationThread = Environment.GetEnvironmentVariable("MA_COLONY_PRESENTATION_THREAD") != "0";
         private static IntPtr Publish(IntPtr pointer)
         {
             var source = (Sim.GameDataUpdate*)pointer;
@@ -556,6 +557,14 @@ namespace MixedAtmospheres.Oni
             var viewsCopied = ColonyViewCache.Copy(ref output, views);
             Lap("views");
             status = output;
+            // The presentation's copy of the completed frame's readings touches
+            // nothing the rest of the publication does: it runs beside the
+            // snapshot, overlay and receipts and is joined where it was called.
+            var presentedFrame = status.CompletedFrames;
+            // Only for a new frame (the views were written): a data request without one publishes nothing.
+            var presenting = presentationThread && viewsCopied ? System.Threading.Tasks.Task.Run(() => ColonyPresentation.Publish(presentedFrame)) : null;
+            try
+            {
             var receiptPublicationSession=output.Session;var receiptPublicationFrame=output.CompletedFrames;
             if(worldPassiveControl)ObserveWorldPassives();
             var timedCompletion = false; var matchedCompletion = false; long submittedAt = 0;
@@ -668,7 +677,8 @@ namespace MixedAtmospheres.Oni
                 ColonyActors.Publish(copy);
                 Lap("actors");
                 ++Publications;
-                ColonyPresentation.Publish(status.CompletedFrames);
+                if (presenting != null) { var joined = presenting; presenting = null; joined.GetAwaiter().GetResult(); }
+                else ColonyPresentation.Publish(status.CompletedFrames);
                 ColonyStartingAir.Update();
                 Lap("presentation");
                 PublicationMilliseconds = (System.Diagnostics.Stopwatch.GetTimestamp() - started) * 1000.0 / System.Diagnostics.Stopwatch.Frequency;
@@ -682,6 +692,12 @@ namespace MixedAtmospheres.Oni
             // so the game keeps reading the snapshot it already has) leaves
             // that snapshot current and readable. Nothing may follow it.
             return publication.Commit(copy, SpeedControlScreen.Instance != null && SpeedControlScreen.Instance.IsPaused);
+            }
+            finally
+            {
+                // A publication that failed before the join: let the copy finish; its own failures are reported by it.
+                if (presenting != null) try { presenting.Wait(); } catch (AggregateException) { }
+            }
         }
 
         // Only a completed publication whose receipt epoch, owner and fault
