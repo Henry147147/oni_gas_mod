@@ -21,7 +21,9 @@ namespace MixedAtmospheres.Oni
         // reservoir still has those proportions. Frame 160: both reservoirs
         // are empty, the world has received each constituent's whole amount
         // and every pipe account closes. The bounds were fixed before the
-        // first run.
+        // first run, except that the colony-wide output counter is no longer
+        // required to equal the 90 kg: run in a batch (patch tier of 6a116e5)
+        // it also counted an earlier scenario's reservoir, 372 kg in all.
         private static readonly List<GameObject> mixBuildings=new List<GameObject>();
         private static readonly List<int> mixLiquidRoute=new List<int>(),mixGasRoute=new List<int>();
         private static double StoredOf(GameObject building,SimHashes element)=>building.GetComponent<Storage>().items.Where(i=>i!=null)
@@ -81,8 +83,10 @@ namespace MixedAtmospheres.Oni
             if(Once(160,"both reservoirs emptied into the world"))
             {
                 var output=ColonyMachinePorts.Enabled?ColonyMachinePorts.FromStorage.Mass-recorded["from storage"]:double.NaN;
-                Record("both reservoirs gave out everything they held",HeldMass(mixBuildings[0])<=1e-5&&HeldMass(mixBuildings[1])<=1e-5&&Math.Abs(output-90)<=1e-3,
-                    $"gas reservoir {HeldMass(mixBuildings[0]):R} kg, liquid reservoir {HeldMass(mixBuildings[1]):R} kg, reservoir outputs {output:R} kg of 90");
+                // The machine ports' output counter is the whole colony's: in a batch an earlier scenario's
+                // machines still run, so it is reported, not bounded (the world's receipts below are this arena's).
+                Record("both reservoirs gave out everything they held",HeldMass(mixBuildings[0])<=1e-5&&HeldMass(mixBuildings[1])<=1e-5&&!(output<90-1e-3),
+                    $"gas reservoir {HeldMass(mixBuildings[0]):R} kg, liquid reservoir {HeldMass(mixBuildings[1]):R} kg; all machine outputs in the colony {output:R} kg, at least these 90");
                 var gains=liquidShares.Concat(gasShares).Select(s=>(s.Item1,gain:ArenaSpecies(s.Item1)-recorded["world "+s.Item1])).ToArray();
                 var expected=new Dictionary<SimHashes,double>{{SimHashes.Water,60},{SimHashes.DirtyWater,20},{SimHashes.Oxygen,6},{SimHashes.CarbonDioxide,3},{SimHashes.Hydrogen,1}};
                 Record("the world received each constituent's whole amount",gains.All(g=>Math.Abs(g.gain-expected[g.Item1])<=1e-3),string.Join(", ",gains.Select(g=>$"{g.Item1} {g.gain:F4} of {expected[g.Item1]} kg")));
