@@ -545,6 +545,18 @@ def stage_extra_mod(source: Path, dev: Path, taken: set[str]) -> dict:
             "staticID": identity}
 
 
+def add_extra_mods(mods: list[dict], dev: Path, after, first) -> None:
+    """Other mods around the package, each a built mod folder (mod.yaml, mod_info.yaml and its DLLs).
+
+    `after`: loaded after the package, e.g. a mod that uses docs/face-forces.md. `first`: loaded
+    before it, as a player's mod list may order them (docs/game-update-resilience.md#other-mods).
+    """
+    for extra in after if isinstance(after, (list, tuple)) else []:
+        mods.append(stage_extra_mod(Path(extra).resolve(), dev, {entry["label"]["id"] for entry in mods}))
+    for position, extra in enumerate(first if isinstance(first, (list, tuple)) else []):
+        mods.insert(position, stage_extra_mod(Path(extra).resolve(), dev, {entry["label"]["id"] for entry in mods}))
+
+
 def release_mode_error(manifest: dict, mode: str) -> str | None:
     """A release writes reports only beside a validation request, which menu mode does not stage."""
     if is_distribution_package(manifest) and mode == "menu":
@@ -1103,11 +1115,7 @@ def playtest(args, state: Path, session: dict) -> int:
                   "version": mono_label_version(mod_id)}, "status": 1, "enabled": True,
         "enabledForDlc": ["", *oni_dlc.DLC_IDS], "crash_count": 0, "reinstall_path": None,
         "staticID": "MixedAtmospheres.IntegrationProbe"}]
-    # Other mods to load after the package, each a built mod folder (mod.yaml,
-    # mod_info.yaml and its DLLs), e.g. a mod that uses docs/face-forces.md.
-    extra_mods = getattr(args, "extra_mod", None)
-    for extra in extra_mods if isinstance(extra_mods, (list, tuple)) else []:
-        mods.append(stage_extra_mod(extra.resolve(), profile / "mods/Dev", {entry["label"]["id"] for entry in mods}))
+    add_extra_mods(mods, profile / "mods/Dev", getattr(args, "extra_mod", None), getattr(args, "extra_mod_first", None))
     write_json(profile / "mods/mods.json", {"version": 1, "mods": mods})
     load_fixture = None
     load_save = getattr(args, "load_save", None)
@@ -1389,6 +1397,8 @@ def main() -> int:
     play.add_argument("--mod-id", help="Stable private Dev mod identity; defaults to MixedAtmospheres.IntegrationProbe")
     play.add_argument("--extra-mod", type=Path, action="append", metavar="FOLDER",
                       help="Also install and enable this built mod folder (mod.yaml, mod_info.yaml, DLLs) after the package; repeatable")
+    play.add_argument("--extra-mod-first", type=Path, action="append", metavar="FOLDER",
+                      help="Like --extra-mod, but the game loads this mod before the package; repeatable")
     play.add_argument("--reload-in-process", action="store_true", help="Return through the main menu and load again in the same Unity process; requires initial autosave control")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
     play.add_argument("--vanilla-load", action="store_true", help="colony-owner-load: hand the save to ONI's own loader, which must refuse it")

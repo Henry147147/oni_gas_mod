@@ -75,25 +75,144 @@ namespace MixedAtmospheres.Oni
             (ids.Count == 1 ? " is" : " are") + " active. Turn " + (ids.Count == 1 ? "that pack" : "those packs") +
             " off in the main menu's content settings, then load the colony again. The save has not been changed.";
 
-        // A game build whose verification failed (docs/game-update-resilience.md).
-        internal static string BuildRefusal(int build, IReadOnlyList<string> differences)
+        // Where a player reports a problem. Named in every notice the player
+        // cannot resolve alone.
+        internal const string ReportPlaces = "the Mixed Atmospheres page on the Steam Workshop or github.com/Henry147147/oni_gas_mod/issues";
+
+        private static string Report(string lead = "please report it") => lead + " with your Player.log on " + ReportPlaces + ".";
+
+        private static string Untouched(string until) =>
+            "\n\nThe mod has not changed the game. Colonies started with Mixed Atmospheres are untouched and can be loaded again once " + until + ".";
+
+        private static string Parts(int count) => count == 1 ? "one part" : count + " parts";
+        private static string Methods(int count) => count == 1 ? "one method" : count + " methods";
+
+        // "changed static SaveLoader::Save(System.String,...)System.String" as
+        // "SaveLoader.Save": what fits a dialog. Player.log keeps the full form.
+        internal static string ShortPart(string difference)
         {
-            var shown = differences.Take(3).Select(d => "  - " + d).ToArray();
-            return "This version of Mixed Atmospheres does not support this version of Oxygen Not Included" + (build > 0 ? " (build " + build + ")" : "") +
-                ". It checks every part of the game it depends on, and " + (differences.Count == 1 ? "one has" : differences.Count + " have") + " changed:\n" +
-                string.Join("\n", shown) + (differences.Count > shown.Length ? "\n  - and " + (differences.Count - shown.Length) + " more (listed in Player.log)" : "") +
-                "\n\nThe mod has not changed the game. Colonies started with Mixed Atmospheres are untouched and can be loaded again once a Mixed Atmospheres " +
-                "update for this game version is installed.";
+            var at = difference.IndexOf("::", StringComparison.Ordinal);
+            if (at < 0) return difference;
+            var owner = difference.LastIndexOf(' ', at) + 1;
+            var end = at + 2;
+            while (end < difference.Length && (char.IsLetterOrDigit(difference[end]) || difference[end] == '_' || difference[end] == '.' || difference[end] == '*')) ++end;
+            var verb = difference.Substring(0, Math.Max(0, difference.IndexOf(' ')));
+            return difference.Substring(owner, at - owner).Replace('/', '.') + "." + difference.Substring(at + 2, end - at - 2) +
+                (verb == "missing" || verb == "new" || verb == "unreadable" ? " (" + verb + ")" : "");
         }
 
-        // A mixture save while the build is refused.
-        internal static string RefusedBuildLoad(string build) =>
-            "This colony uses Mixed Atmospheres, which is not active in this version of Oxygen Not Included" + (build.Length != 0 && build != "0" ? " (build " + build + ")" : "") +
-            ", so it was not loaded. The save has not been changed. Install a Mixed Atmospheres update for this game version, then load the colony again.";
+        private static string Shown(IReadOnlyList<string> lines, int limit, string rest)
+        {
+            var shown = lines.Take(limit).Select(line => "  - " + line).ToArray();
+            return string.Join("\n", shown) + (lines.Count > shown.Length ? "\n  - and " + (lines.Count - shown.Length) + " more" + (rest.Length != 0 ? " " + rest : "") + " (listed in Player.log)" : "");
+        }
+
+        // Why the mod stays off before patching anything
+        // (docs/game-update-resilience.md#refusals): the main-menu notice,
+        // what a refused mixture save says, and the lines for Player.log.
+        internal sealed class GameRefusal
+        {
+            internal string Kind = "", Notice = "", LoadReason = "", LoadRemedy = "";
+            internal IReadOnlyList<string> Details = Array.Empty<string>();
+
+            // A mixture save while the mod is refused.
+            internal string LoadRefusal =>
+                "This colony uses Mixed Atmospheres, which is not active " + LoadReason + ", so it was not loaded. The save has not been changed. " +
+                LoadRemedy + ", then load the colony again.";
+        }
+
+        // The game is a build this copy of the mod was not made for: the game
+        // was updated first, or the installed copy of the mod is an old one.
+        internal static GameRefusal UnsupportedBuild(string version, int running, int supported)
+        {
+            var game = running > 0 ? "build " + running : "an unknown build";
+            var older = running > 0 && running < supported;
+            return new GameRefusal
+            {
+                Kind = "unsupported game build",
+                Notice = "Mixed Atmospheres " + version + " does not support this version of Oxygen Not Included (the game is " + game + "; this copy of the mod is for build " + supported + ").\n\n" +
+                    (older ? "The game is older than the mod expects. Update Oxygen Not Included, or leave the previous-version branch in its Steam properties."
+                        : "The game was probably updated before the mod. Steam installs the next Mixed Atmospheres update by itself; if this notice stays after an update " +
+                          "was released, unsubscribe from the mod and subscribe again.") +
+                    Untouched("a Mixed Atmospheres version for this game build is installed"),
+                LoadReason = "on this version of Oxygen Not Included (" + game + ")",
+                LoadRemedy = older ? "Update Oxygen Not Included" : "Install a Mixed Atmospheres update for this game version",
+                Details = new[] { "the game is " + game + "; this adapter was verified for build " + supported },
+            };
+        }
+
+        // The build is supported and its code is the verified code, but other
+        // mods patched methods the mod depends on before it loaded. `parts`
+        // pairs each such game method with the mods that patched it.
+        internal static GameRefusal OtherMods(int build, IReadOnlyList<KeyValuePair<string, string[]>> parts)
+        {
+            var mods = parts.SelectMany(part => part.Value.Distinct(StringComparer.Ordinal)).GroupBy(name => name, StringComparer.Ordinal)
+                .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
+                .Select(group => group.Key + " (" + Methods(group.Count()) + ")").ToArray();
+            return new GameRefusal
+            {
+                Kind = "other mods changed game code the mod depends on",
+                Notice = "Mixed Atmospheres is not active because " + (mods.Length == 1 ? "another mod has" : "other mods have") + " changed game code it depends on. " +
+                    "This version of Mixed Atmospheres supports your game (build " + build + "): neither is out of date.\n\n" +
+                    (parts.Count == 1 ? "One game method it uses was" : parts.Count + " game methods it uses were") + " patched by:\n" +
+                    Shown(mods, 6, "mods") + "\n\n" +
+                    "Try disabling " + (mods.Length == 1 ? "that mod" : "those mods") + " and restart the game. To use " + (mods.Length == 1 ? "it" : "them") +
+                    " together with Mixed Atmospheres, " + Report("please report the conflict") +
+                    Untouched("the conflict is gone"),
+                LoadReason = "because other mods have changed game code it depends on (the notice at the main menu names them)",
+                LoadRemedy = "Disable those mods and restart the game",
+                Details = parts.Select(part => part.Key + " <- " + string.Join(", ", part.Value)).ToArray(),
+            };
+        }
+
+        // The build number is a supported one, yet the game's code is not
+        // that build's and no mod's patch accounts for it: files replaced by a
+        // mod or tool, or damaged.
+        internal static GameRefusal GameFiles(int build, IReadOnlyList<string> differences)
+        {
+            var parts = differences.Select(ShortPart).Distinct(StringComparer.Ordinal).ToArray();
+            return new GameRefusal
+            {
+                Kind = "the game's code differs from the supported build",
+                Notice = "Mixed Atmospheres is not active. Your game reports a version the mod supports (build " + build + "), but " + Parts(differences.Count) +
+                    " of its code " + (differences.Count == 1 ? "differs" : "differ") + " from that version:\n" + Shown(parts, 3, "") + "\n\n" +
+                    "The game is not out of date. Usually another mod or tool has modified the game's files, or files are damaged. Try disabling other mods, and " +
+                    "\"Verify integrity of game files\" in the game's Steam properties. If this notice stays, " + Report() +
+                    Untouched("the game's code is that of build " + build + " again"),
+                LoadReason = "because the game's code differs from the supported build " + build,
+                LoadRemedy = "Disable other mods or verify the game's files in Steam",
+                Details = differences.ToArray(),
+            };
+        }
+
+        // The mod's own files do not belong together.
+        internal static GameRefusal Installation(string reason) => new GameRefusal
+        {
+            Kind = "the mod's installation is incomplete",
+            Notice = "Mixed Atmospheres is not active because its own files are incomplete or come from two versions (" + reason + "). The game is not out of date.\n\n" +
+                "Unsubscribe from the mod and subscribe again, or replace a copy you installed by hand, then restart the game. If this notice stays, " + Report() +
+                Untouched("the mod is installed completely"),
+            LoadReason = "because its installation is incomplete",
+            LoadRemedy = "Reinstall Mixed Atmospheres",
+            Details = new[] { reason },
+        };
+
+        // The check itself failed.
+        internal static GameRefusal CheckFailed(string reason) => new GameRefusal
+        {
+            Kind = "the check of the game failed",
+            Notice = "Mixed Atmospheres is not active because its check of the game failed: " + reason + "\n\n" +
+                "Another mod may be the cause: try disabling other mods and restart the game. If this notice stays, " + Report() +
+                Untouched("the check passes"),
+            LoadReason = "because its check of the game failed (see the notice at the main menu)",
+            LoadRemedy = "Disable other mods and restart the game",
+            Details = new[] { reason },
+        };
 
         // Any other failure while starting: the mod removed its changes.
         internal static string StartFailure(string reason) =>
-            "Mixed Atmospheres could not start and has removed all of its changes, so the game runs as normal: " + reason;
+            "Mixed Atmospheres could not start and has removed all of its changes, so the game runs as normal: " + reason +
+            "\n\nAnother mod may be the cause: try disabling other mods. If this notice stays, " + Report();
 
         // A second copy in the same process. Keep the Steam Workshop copy when
         // there is one; otherwise keep the copy that loaded first.

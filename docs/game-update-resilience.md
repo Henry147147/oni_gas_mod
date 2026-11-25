@@ -117,7 +117,9 @@ compatible version.
    for example from a `TargetMethods()` scan that found a new native-message
    caller, removes every patch.
 5. If anything fails, the mod tears down, installs nothing more and shows a
-   player notice naming the first differences. The log lists every difference.
+   player notice that names the cause ([refusals](#refusals)); a difference
+   that is only [another mod's patch](#other-mods) is told apart from a
+   changed game. The log lists every difference.
 
 ### What replaces whole-file hashes
 
@@ -270,12 +272,67 @@ differences; [1.10.2](playtest-1.10.2.md) is the retarget. What it showed:
   it goes back to Offline Mode. The copies on the share are renamed so that
   the default folders hold the new build and `-763796` the previous one.
 
+## Other mods
+
+A player on build 764025, which the installed version supported, was shown
+"does not support this version of Oxygen Not Included ... 25 have changed"
+(`SaveLoader.LoadHeader`, `SaveLoader.Save`,
+`CustomGameSettings.SetQualitySetting`, ...) and took the game to be out of
+date (report passed on by the user, 2026-11-24). The game was not: other mods
+had patched those methods.
+
+- **Why a patch reads as a change.** Harmony marks every method it patches as
+  not inlinable. Under Mono that sets `NoInlining` in the runtime's own method
+  record, which is where reflection reads a method's implementation flags, and
+  the canonical method form includes them. Measured in the game's Mono: a
+  prefix on `SaveLoader.Save` takes the flags from 0 to 8 and leaves the IL
+  bytes as they were. The check runs once, in `Mod.OnLoad`, so it sees the
+  patches of mods the game loaded earlier and none of those loaded later.
+- **What 1.13.6 does.** The decision is the same (the mod stays off) and its
+  statement is new. For a method that Harmony reports as patched, `Verify`
+  compares the form without that mark as well; when it then matches, the
+  difference is reported as `patched by another mod: ...` instead of
+  `changed ...`. If every difference is of that kind, the notice says that
+  the game and the mod fit together, names the mods and how many of the used
+  methods each patched, and asks the player to disable them or to report the
+  conflict (the Workshop page, the GitHub issues). A mod is named by its title
+  in the game's mod list, found through the assembly that holds the patch; a
+  mod's Harmony ID is its own choice and is written to Player.log beside it.
+  Any other difference on a supported build number gets the notice about the
+  game's code (below).
+- **Open, a user decision.** Whether the mod should run beside such mods.
+  Today that depends on the order of the mod list: the same mod loaded after
+  Mixed Atmospheres is never noticed. Accepting a difference that is only the
+  patch mark would treat both orders alike; the IL would still be verified
+  byte for byte. It would also mean running with another mod's code on a
+  method the mod calls, which is already the case for every mod loaded later.
+- **How common it is.** Of 18 other Workshop mods at hand, 10 patch at least
+  one of the 1,383 game methods in the contract (`Db.Initialize`,
+  `MainMenu.OnSpawn`, `Game.DestroyInstances`, `ModsScreen.BuildDisplay`, ...;
+  [1.13.6 notes](playtest-1.13.6.md#how-common-the-conflict-is)).
+- **Controls.** `tools/game_mono_contract_check.py --other-mod` loads
+  `tools/GameContractOtherMod` in the game's Mono before the check; that
+  stand-in patches `SaveLoader.Save` (under two Harmony IDs),
+  `CustomGameSettings.SetQualitySetting` and `LoadScreen.DoLoad`. Every
+  difference must be attributed to it and the notice must count three
+  methods. In the game, `tools/oni_headless.py run --mode menu
+  --extra-mod-first FOLDER` loads the built stand-in ahead of the package.
+
 ## Refusals
+
+Each refusal has its own text (`ModAdmission`, unit controls in
+`tools/DistributionTests`). Only the first of the build refusals says that an
+update is needed; every notice the player cannot resolve alone says where to
+report it.
 
 | Situation | Behaviour |
 | --- | --- |
 | Not Windows x64 or Linux x64 (macOS, 32-bit) | Nothing patched; main-menu notice; ONI unchanged |
-| Unverified game build | Nothing patched except the verified load guard; notice lists the differences |
+| The game is a build this copy has no adapter for | Nothing patched except the verified load guard; notice names both builds and says a Mixed Atmospheres update is needed (or, for an older game, a game update) |
+| Supported build, [other mods patched](#other-mods) methods the mod uses | The same; notice says neither game nor mod is out of date, names the mods, asks to disable them or report the conflict |
+| Supported build number, but the game's code or `SimDLL` differs | The same; notice lists the first parts by short name, asks to disable other mods and verify the game's files, or to report it |
+| The mod's own files do not belong together (contract missing or of another build, native library of another build) | The same; notice asks to reinstall the mod |
+| The check itself failed | The same; notice gives the error and where to report it |
 | Second copy of the mod enabled | Second copy patches nothing; notice asks the player to keep one |
 | Frosty, Bionic, Prehistoric or Aquatic content active | The mod loads, but the colony owner never takes a colony over; notice; the colony keeps ONI's simulation. A mixture save is not loaded while such a pack is active. This is the release behaviour (user decision 2026-10-27: the first release supports the base game and Spaced Out! only). |
 
@@ -288,6 +345,7 @@ dotnet run --project tools/GameContract -c Release -- generate --mod DIR \
 dotnet run --project tools/GameContract -c Release -- verify   --mod DIR --game linux-x64=ROOT --contract DIR/game-contract.json
 dotnet run --project tools/GameContract -c Release -- controls --mod DIR --game linux-x64=ROOT --contract DIR/game-contract.json
 python3 tools/game_mono_contract_check.py --mod DIR [--managed-game WINDOWS_ROOT --platform windows-x64]
+python3 tools/game_mono_contract_check.py --mod DIR --other-mod   # control: a mod that patched first
 python3 tools/retarget_oni.py --windows-game NEW_WINDOWS_ROOT --linux-game NEW_LINUX_ROOT \
   --managed-dir DIR [--accept-indirect] [--write-profiles --build N]
 ```
@@ -321,6 +379,8 @@ shadow probe's reference if it changes. Keep the older builds as described
 | Build check in `Mod.OnLoad`, refused-build load guard | `GameBuildCheck.cs` |
 | Offline host: generate, verify, controls | `tools/GameContract` (`tools/game_contract.py` wraps it) |
 | The same check inside the game's own Mono runtime, without Unity | `tools/game_mono_contract_check.py` and `.c` |
+| A stand-in for another mod (Mono control, and a mod folder for the game) | `tools/GameContractOtherMod` |
+| Refusal texts, one per cause | `ModAdmission.cs` (`GameRefusal`), chosen in `GameBuildCheck.cs` |
 | Normalised identity | `tools/oni_hook_profiles.py`, `native/src/oni_image_identity.hpp` |
 | Profile selection | `native/src/oni_backend.cpp` (`NativeProfile`, `verify_files`) |
 | Saves across builds | `ColonySaveEnvelope.Parse(..., earliest, latest, ...)`, `ColonyOwnerPersistence.cs` |

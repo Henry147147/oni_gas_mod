@@ -271,7 +271,13 @@ namespace MixedAtmospheres.Oni
         // Milliseconds the last Verify spent per entry kind (Player.log).
         internal static readonly Dictionary<string, double> Timings = new Dictionary<string, double>(StringComparer.Ordinal);
 
-        internal static List<string> Verify(GameContractPlatform contract, Assembly mod, out int checkedEntries)
+        // A difference that is a mod's Harmony patch on verified game code
+        // (GameContractScope.PatchedByAMod): the text and the patched methods.
+        internal sealed class ModPatched { internal string Difference = ""; internal MethodBase[] Methods = Array.Empty<MethodBase>(); }
+
+        // Such a difference still refuses the build; it is worded apart and,
+        // when `modPatched` is given, recorded there so the notice can name the mods.
+        internal static List<string> Verify(GameContractPlatform contract, Assembly mod, out int checkedEntries, List<ModPatched>? modPatched = null)
         {
             var differences = new List<string>();
             var module = mod.ManifestModule;
@@ -285,6 +291,7 @@ namespace MixedAtmospheres.Oni
                 ++checkedEntries;
                 var started = clock.Elapsed.TotalMilliseconds;
                 string key, value;
+                Func<string>? unpatched = null; MethodBase[] methods = Array.Empty<MethodBase>();
                 try
                 {
                     switch (entry.Kind)
@@ -294,18 +301,34 @@ namespace MixedAtmospheres.Oni
                             key = GameContractCanon.Type(type); value = GameContractScope.TypeValue(type); break;
                         case GameContractScope.Kind_Member:
                             var member = entry.Context == 0 ? module.ResolveMember(entry.Token)! : Resolve(module, entry.Token, module.ResolveMethod(entry.Context)!);
-                            key = GameContractCanon.Member(member); value = GameContractScope.MemberValue(member); break;
+                            key = GameContractCanon.Member(member); value = GameContractScope.MemberValue(member);
+                            if (member is MethodBase called) { methods = new[] { called }; unpatched = () => GameContractScope.MemberValue(member, true); }
+                            break;
                         case GameContractScope.Kind_Named:
                             var owner = entry.Token != 0 ? module.ResolveType(entry.Token) : GameContractScope.FindType(entry.TypeName)
                                 ?? throw new TypeLoadException("type " + entry.TypeName + " is missing");
-                            (key, value) = Named(owner, entry.Name); break;
+                            (key, value) = Named(owner, entry.Name);
+                            if (entry.Name.Length != 0 && entry.Name != AllMembers)
+                            {
+                                methods = GameContractScope.GameMembers(owner, entry.Name).OfType<MethodBase>().ToArray();
+                                unpatched = () => GameContractScope.NamedValue(owner, entry.Name, true);
+                            }
+                            break;
                         default: throw new NotSupportedException("unknown contract entry kind " + entry.Kind);
                     }
                 }
                 catch (Exception error) { differences.Add("missing " + entry.Key + " (" + error.Message + ")"); continue; }
                 finally { Timings[entry.Kind] = (Timings.TryGetValue(entry.Kind, out var spent) ? spent : 0) + clock.Elapsed.TotalMilliseconds - started; }
                 if (key != entry.Key) differences.Add("changed " + entry.Key + " -> " + key);
-                else if (!Same(entry.Value, value)) differences.Add("changed " + entry.Key);
+                else if (!Same(entry.Value, value)) Changed(entry.Key, "", entry.Value, methods, unpatched);
+            }
+            void Changed(string key, string what, string expected, MethodBase[] methods, Func<string>? unpatched)
+            {
+                var patched = methods.Where(GameContractScope.PatchedByAMod).ToArray();
+                if (patched.Length == 0 || unpatched == null || !Same(expected, unpatched())) { differences.Add("changed " + what + key); return; }
+                var difference = "patched by another mod: " + what + key;
+                differences.Add(difference);
+                modPatched?.Add(new ModPatched { Difference = difference, Methods = patched });
             }
             var discovery = clock.Elapsed.TotalMilliseconds;
             List<MethodBase> targets;
@@ -320,7 +343,7 @@ namespace MixedAtmospheres.Oni
                 catch (Exception error) { differences.Add("unreadable patch target " + target.DeclaringType?.FullName + "." + target.Name + " (" + error.Message + ")"); continue; }
                 found.Add(key);
                 if (!expectedTargets.TryGetValue(key, out var expected)) differences.Add("new patch target " + key);
-                else if (!Same(expected, value)) differences.Add("changed patch target " + key);
+                else if (!Same(expected, value)) Changed(key, "patch target ", expected, new[] { target }, () => GameContractCanon.Body(target, MethodImplAttributes.NoInlining));
             }
             foreach (var key in expectedTargets.Keys) if (!found.Contains(key)) differences.Add("missing patch target " + key);
             Timings[GameContractScope.Kind_Patched] = clock.Elapsed.TotalMilliseconds - discovery;
@@ -335,10 +358,13 @@ namespace MixedAtmospheres.Oni
         {
             var file = GameContractFile.Parse(contractJson);
             var started = System.Diagnostics.Stopwatch.StartNew();
-            var differences = Verify(file.Platforms[platform], typeof(GameContractCheck).Assembly, out var count);
+            var modPatched = new List<ModPatched>();
+            var differences = Verify(file.Platforms[platform], typeof(GameContractCheck).Assembly, out var count, modPatched);
             return $"{platform} (game Mono): build {GameBuildCheck.RunningBuild}, {count} dependencies checked in {started.ElapsedMilliseconds} ms (" +
                 string.Join(", ", Timings.Select(t => t.Key + " " + ((long)t.Value).ToString() + " ms")) + $"), {differences.Count} differences" +
-                string.Concat(differences.Take(40).Select(d => "\n  " + d));
+                string.Concat(differences.Take(40).Select(d => "\n  " + d)) +
+                // What the player would be told (--other-mod control).
+                (differences.Count == 0 ? "" : "\nnotice:\n" + GameBuildCheck.Differences(GameBuildCheck.RunningBuild, differences, modPatched).Notice);
         }
 
         // After patching: every original this Harmony owner patched must be a

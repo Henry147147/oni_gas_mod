@@ -154,7 +154,7 @@ static class Program
 
     static List<string> Differences(Host host, JsonNode platform, out int checkedEntries, out double milliseconds)
     {
-        var arguments = new object?[] { Platform(host, platform), host.Mod, 0 };
+        var arguments = new object?[] { Platform(host, platform), host.Mod, 0, null }; // the last: no record of other mods' patches
         var timer = Stopwatch.StartNew();
         var differences = ((IEnumerable<string>)Call(host.Check, "Verify", arguments)!).ToList();
         milliseconds = timer.Elapsed.TotalMilliseconds; checkedEntries = (int)arguments[2]!;

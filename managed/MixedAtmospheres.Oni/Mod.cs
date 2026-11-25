@@ -50,18 +50,18 @@ namespace MixedAtmospheres.Oni
             // SimDLL. A refused build patches nothing except, when its own
             // targets verify, a guard that explains why mixture saves wait.
             var build = GameBuildCheck.RunningBuild;
-            List<string>? differences;
-            try { differences = GameBuildCheck.VerifyManaged(path) ?? NativeBuildRefusal(path); }
-            catch (Exception error) { differences = new List<string> { "the game could not be checked (" + error.Message + ")" }; }
-            if (differences != null)
+            ModAdmission.GameRefusal? refusal;
+            try { refusal = GameBuildCheck.VerifyManaged(path) ?? NativeBuildRefusal(path, build); }
+            catch (Exception error) { refusal = ModAdmission.CheckFailed(error.Message); }
+            if (refusal != null)
             {
-                UnityEngine.Debug.LogWarning("[Mixed Atmospheres] Game build " + build + " is not supported; nothing is patched. Differences:\n  " + string.Join("\n  ", differences));
-                MenuNotices.Post("Mixed Atmospheres is not active", ModAdmission.BuildRefusal(build, differences));
+                UnityEngine.Debug.LogWarning("[Mixed Atmospheres] Not active on game build " + build + " (" + refusal.Kind + "); nothing is patched. Details:\n  " + string.Join("\n  ", refusal.Details));
+                MenuNotices.Post("Mixed Atmospheres is not active", refusal.Notice);
                 var contract = GameBuildCheck.Contract;
                 if (contract == null && File.Exists(Path.Combine(path, GameContractFile.FileName)))
                     try { GameContractFile.Parse(File.ReadAllText(Path.Combine(path, GameContractFile.FileName))).Platforms.TryGetValue(GameBuildCheck.Platform, out contract); }
                     catch (Exception) { contract = null; }
-                RefusedBuildLoadGuard.TryInstall(harmony, contract, build);
+                RefusedBuildLoadGuard.TryInstall(harmony, contract, refusal);
                 return;
             }
             try
@@ -112,14 +112,15 @@ namespace MixedAtmospheres.Oni
         // The native library checks the game's SimDLL against its verified
         // profiles; an unsupported image refuses the build like a managed
         // difference. Probing loads only this mod's own library and changes nothing.
-        private static List<string>? NativeBuildRefusal(string modDirectory)
+        private static ModAdmission.GameRefusal? NativeBuildRefusal(string modDirectory, int build)
         {
             if (!NativeLibraryBootstrap.ObserverAvailable(modDirectory)) return null;
             var managed = Path.GetDirectoryName(typeof(Sim).Assembly.Location) ?? throw new InvalidOperationException("Cannot locate the loaded game assembly.");
             var game = Directory.GetParent(managed)?.Parent?.FullName ?? throw new InvalidOperationException("Cannot locate the loaded game's root.");
             NativeLibraryBootstrap.LoadObserver(modDirectory);
             var refusal = OniNativeObserver.ProbeGame(game);
-            return refusal == null ? null : new List<string> { "the game's native simulator (SimDLL): " + refusal };
+            return refusal == null ? null : refusal == OniNativeObserver.OtherModBuild ? ModAdmission.Installation(refusal) :
+                ModAdmission.GameFiles(build, new[] { "the game's native simulator (SimDLL): " + refusal });
         }
 
         // One copy per process. ONI loads every enabled copy: a Dev copy left

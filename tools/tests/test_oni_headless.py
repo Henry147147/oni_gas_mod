@@ -51,6 +51,31 @@ class ExtraModTests(unittest.TestCase):
             self.assertTrue(entry["enabled"])
             self.assertIn("", entry["enabledForDlc"])
 
+    def test_mods_are_listed_before_and_after_the_package_as_asked(self):
+        """--extra-mod-first: the stand-in for another mod loads ahead of the package (docs/game-update-resilience.md#other-mods)."""
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            stand_in = root / "GameContractOtherMod"
+            stand_in.mkdir()
+            for name in ("mod.yaml", "mod_info.yaml"):
+                shutil.copy(Path(runner.__file__).parent / "GameContractOtherMod" / name, stand_in / name)
+            (stand_in / "GameContractOtherMod.dll").write_bytes(b"MZ")
+            fans = root / "Fans"
+            fans.mkdir()
+            (fans / "mod.yaml").write_text('title: "Fans"\nstaticID: "Fans"\n')
+            (fans / "mod_info.yaml").write_text("minimumSupportedBuild: 744825\nAPIVersion: 2\n")
+            dev = root / "mods/Dev"
+            dev.mkdir(parents=True)
+            mods = [{"label": {"id": "MixedAtmospheres.IntegrationProbe"}}]
+            runner.add_extra_mods(mods, dev, [fans], [stand_in])
+            self.assertEqual([entry["label"]["id"] for entry in mods],
+                             ["MixedAtmospheres.OtherModStandIn", "MixedAtmospheres.IntegrationProbe", "Fans"])
+            self.assertEqual(mods[0]["label"]["title"], "Other Mod Stand-in")
+            self.assertTrue((dev / "MixedAtmospheres.OtherModStandIn/GameContractOtherMod.dll").is_file())
+            unchanged = [{"label": {"id": "MixedAtmospheres.IntegrationProbe"}}]
+            runner.add_extra_mods(unchanged, dev, None, None)
+            self.assertEqual(len(unchanged), 1)
+
     def test_a_folder_that_is_not_a_mod_or_clashes_is_refused(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

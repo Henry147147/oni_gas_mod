@@ -34,9 +34,20 @@ namespace MixedAtmospheres.Oni
             }
         }
 
+        // This copy's version, as the packages write it into mod_info.yaml.
+        internal static string ModVersion
+        {
+            get
+            {
+                var version = typeof(GameBuildCheck).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion ?? "";
+                var metadata = version.IndexOf('+');
+                return metadata < 0 ? version : version.Substring(0, metadata);
+            }
+        }
+
         // Null when the managed side is verified (or no contract ships);
-        // otherwise every difference, in plain words.
-        internal static List<string>? VerifyManaged(string modDirectory)
+        // otherwise why the mod stays off, by cause (ModAdmission.GameRefusal).
+        internal static ModAdmission.GameRefusal? VerifyManaged(string modDirectory)
         {
             Contract = null;
             var file = Path.Combine(modDirectory, GameContractFile.FileName);
@@ -44,27 +55,92 @@ namespace MixedAtmospheres.Oni
             {
                 if (File.Exists(Path.Combine(modDirectory, "development.json")) && RunningBuild == 744825 && CompiledBuild == 744825)
                     return null;
-                return new List<string> { "the game contract is missing; reinstall the mod" };
+                return ModAdmission.Installation("the game contract is missing");
             }
             var started = System.Diagnostics.Stopwatch.StartNew();
             GameContractFile contract;
             try { contract = GameContractFile.Parse(File.ReadAllText(file)); }
-            catch (Exception error) { return new List<string> { "the mod's game contract cannot be read (" + error.Message + "); reinstall the mod" }; }
+            catch (Exception error) { return ModAdmission.Installation("the mod's game contract cannot be read: " + error.Message); }
             var module = typeof(GameBuildCheck).Assembly.ManifestModule.ModuleVersionId.ToString("D");
             if (!string.Equals(contract.ModuleVersionId, module, StringComparison.OrdinalIgnoreCase))
-                return new List<string> { "the mod's game contract belongs to a different build of the mod; reinstall the mod" };
+                return ModAdmission.Installation("the mod's game contract belongs to a different build of the mod");
             if (!contract.Platforms.TryGetValue(Platform, out var platform))
-                return new List<string> { "this package has no game contract for " + Platform };
+                return ModAdmission.Installation("this package has no game contract for " + Platform);
             if (platform.GameBuild != CompiledBuild)
-                return new List<string> { $"the packaged contract is for build {platform.GameBuild}, but the adapter targets {CompiledBuild}" };
+                return ModAdmission.Installation($"the packaged contract is for build {platform.GameBuild}, but the adapter targets {CompiledBuild}");
             if (platform.GameBuild != RunningBuild)
-                return new List<string> { $"this adapter was verified for build {platform.GameBuild}" };
-            var differences = GameContractCheck.Verify(platform, typeof(GameBuildCheck).Assembly, out var checkedEntries);
+                return ModAdmission.UnsupportedBuild(ModVersion, RunningBuild, platform.GameBuild);
+            var modPatched = new List<GameContractCheck.ModPatched>();
+            var differences = GameContractCheck.Verify(platform, typeof(GameBuildCheck).Assembly, out var checkedEntries, modPatched);
             CheckedEntries = checkedEntries; Milliseconds = started.Elapsed.TotalMilliseconds;
-            if (differences.Count != 0) return differences;
+            if (differences.Count != 0) return Differences(RunningBuild, differences, modPatched);
             Contract = platform;
             UnityEngine.Debug.Log($"[Mixed Atmospheres] Game build {RunningBuild} verified: {checkedEntries} managed dependencies match the game contract " +
                 $"(written against build {platform.GameBuild}) in {Milliseconds:F0} ms.");
+            return null;
+        }
+
+        // Contract differences on a supported build number. When every one
+        // is another mod's patch on verified code it is a mod conflict;
+        // anything else means the game's code is not this build's.
+        internal static ModAdmission.GameRefusal Differences(int build, List<string> differences, List<GameContractCheck.ModPatched> modPatched)
+        {
+            if (modPatched.Count != differences.Count) return ModAdmission.GameFiles(build, differences);
+            // One line per patched method: the contract can hold a method as
+            // a call, as a name looked up and as a patch target at once.
+            var methods = new SortedDictionary<string, MethodBase>(StringComparer.Ordinal);
+            foreach (var method in modPatched.SelectMany(part => part.Methods))
+                methods[GameContractCanon.Type(method.DeclaringType).Replace('/', '.') + "." + method.Name] = method;
+            var refusal = ModAdmission.OtherMods(build, methods.Select(method => new KeyValuePair<string, string[]>(method.Key, PatchingMods(method.Value))).ToArray());
+            refusal.Details = methods.Select(method => method.Key + " <- " + string.Join(", ", PatchingMods(method.Value)) +
+                " (Harmony: " + string.Join(", ", Harmony.GetPatchInfo(method.Value)?.Owners ?? Enumerable.Empty<string>()) + ")").ToArray();
+            return refusal;
+        }
+
+        // The mods whose patches Harmony reports on this method, by the name
+        // the game's mod list shows.
+        private static string[] PatchingMods(MethodBase method)
+        {
+            var names = new SortedSet<string>(StringComparer.OrdinalIgnoreCase);
+            var info = Harmony.GetPatchInfo(method);
+            if (info != null)
+            {
+                foreach (var patch in info.Prefixes.Concat(info.Postfixes).Concat(info.Transpilers).Concat(info.Finalizers))
+                    names.Add(ModName(patch.PatchMethod?.DeclaringType?.Assembly, patch.owner));
+                if (names.Count == 0) foreach (var owner in info.Owners) names.Add(ModName(null, owner));
+            }
+            return names.Count != 0 ? names.ToArray() : new[] { "an unnamed mod" };
+        }
+
+        // A mod's title for the assembly that holds its patch (a mod's own
+        // Harmony ID is its choice and need not say which mod it is); without
+        // one, the assembly's name or the Harmony ID.
+        private static string ModName(Assembly? assembly, string owner)
+        {
+            var fallback = assembly?.GetName().Name ?? owner;
+            try { return InstalledModTitle(assembly, owner) ?? fallback; }
+            catch (Exception) { return fallback; }
+        }
+
+        // Apart, so that a game without these members fails here and not in the caller.
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        private static string? InstalledModTitle(Assembly? assembly, string owner)
+        {
+            var mods = Global.Instance?.modManager?.mods;
+            if (mods == null) return null;
+            string location;
+            try { location = assembly == null ? "" : Path.GetFullPath(assembly.Location); }
+            catch (Exception) { location = ""; }
+            foreach (var mod in mods)
+            {
+                if (mod == null || string.IsNullOrEmpty(mod.title)) continue;
+                if (location.Length != 0 && !string.IsNullOrEmpty(mod.ContentPath))
+                {
+                    var root = Path.GetFullPath(mod.ContentPath).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar) + Path.DirectorySeparatorChar;
+                    if (location.StartsWith(root, StringComparison.OrdinalIgnoreCase)) return mod.title;
+                }
+                else if (location.Length == 0 && mod.staticID == owner) return mod.title;
+            }
             return null;
         }
 
@@ -81,17 +157,17 @@ namespace MixedAtmospheres.Oni
         }
     }
 
-    // When the build is refused, mixture saves still get a clear message
+    // When the mod is refused, mixture saves still get a clear message
     // instead of reaching ONI's native loader, but only through load entry
     // points whose own code the contract verifies. Nothing else is patched.
     internal static class RefusedBuildLoadGuard
     {
-        private static string build = "";
+        private static string refusal = "";
 
-        internal static void TryInstall(Harmony harmony, GameContractPlatform? contract, int runningBuild)
+        internal static void TryInstall(Harmony harmony, GameContractPlatform? contract, ModAdmission.GameRefusal reason)
         {
             if (contract == null) return;
-            build = runningBuild.ToString();
+            refusal = reason.LoadRefusal;
             var targets = new[] { AccessTools.Method(typeof(LoadScreen), nameof(LoadScreen.DoLoad), new[] { typeof(string) }), AccessTools.Method(typeof(MainMenu), "ResumeGame") };
             var verified = contract.Entries.Where(e => e.Kind == GameContractScope.Kind_Patched).ToDictionary(e => e.Key, e => e.Value, StringComparer.Ordinal);
             try
@@ -124,7 +200,7 @@ namespace MixedAtmospheres.Oni
         private static bool Refuse(string path)
         {
             if (!ColonyOwnerPersistence.IsMixtureSave(path)) return false;
-            ColonyLoadPrecheckPatch.Refuse(ModAdmission.RefusedBuildLoad(build));
+            ColonyLoadPrecheckPatch.Refuse(refusal);
             return true;
         }
     }

@@ -79,10 +79,12 @@ namespace MixedAtmospheres.Oni
 
         // Normalised method body: tokens become what they resolve to, strings
         // their text; branch offsets, constants, locals and clauses are kept.
-        internal static string Body(MethodBase method)
+        // `ignored`: implementation flags left out of the form (see
+        // GameContractScope.PatchedByAMod).
+        internal static string Body(MethodBase method, MethodImplAttributes ignored = 0)
         {
             var text = new StringBuilder(Method(method)).Append('\n');
-            text.Append("attributes ").Append((int)(method.Attributes & ~MethodAttributes.ReservedMask)).Append(' ').Append((int)method.GetMethodImplementationFlags()).Append('\n');
+            text.Append("attributes ").Append((int)(method.Attributes & ~MethodAttributes.ReservedMask)).Append(' ').Append((int)(method.GetMethodImplementationFlags() & ~ignored)).Append('\n');
             if ((method.Attributes & MethodAttributes.PinvokeImpl) != 0)
                 // Module and entry point only: how each runtime fills the
                 // pseudo-attribute's other defaults differs.
@@ -260,8 +262,20 @@ namespace MixedAtmospheres.Oni
             return value.ToString();
         }
 
-        internal static string MemberValue(MemberInfo member) => member is MethodBase method && method.DeclaringType != null && IsGame(method.DeclaringType.Assembly)
-            ? GameContractCanon.Body(method) : member is FieldInfo field && field.IsLiteral
+        // Harmony marks every method it patches as not inlinable: under Mono
+        // the bit is set in the runtime's method record, where reflection
+        // reads it back. A patched method's code is unchanged, so a method
+        // that Harmony reports as patched and that differs from the contract
+        // in that bit alone is verified game code under a mod's patch.
+        internal static bool PatchedByAMod(MethodBase method)
+        {
+            try { return Harmony.GetPatchInfo(method)?.Owners.Count > 0; }
+            catch (Exception) { return false; }
+        }
+
+        // `withoutPatchMark`: the value a patched method had before Harmony marked it.
+        internal static string MemberValue(MemberInfo member, bool withoutPatchMark = false) => member is MethodBase method && method.DeclaringType != null && IsGame(method.DeclaringType.Assembly)
+            ? GameContractCanon.Body(method, withoutPatchMark && PatchedByAMod(method) ? MethodImplAttributes.NoInlining : 0) : member is FieldInfo field && field.IsLiteral
             ? "const " + GameContractCanon.Constant(field.GetRawConstantValue()) : "present";
 
         // Every member of a type that reflection by this name can reach.
@@ -275,11 +289,11 @@ namespace MixedAtmospheres.Oni
                     yield return member;
         }
 
-        internal static string NamedValue(Type type, string name)
+        internal static string NamedValue(Type type, string name, bool withoutPatchMark = false)
         {
             var members = GameMembers(type, name).ToArray();
             if (members.Length == 0) return "absent";
-            return string.Join("\n", members.Select(m => GameContractCanon.Member(m) + " " + MemberValue(m)).OrderBy(s => s, StringComparer.Ordinal));
+            return string.Join("\n", members.Select(m => GameContractCanon.Member(m) + " " + MemberValue(m, withoutPatchMark)).OrderBy(s => s, StringComparer.Ordinal));
         }
 
         // The originals Harmony's PatchAll would patch, found without patching

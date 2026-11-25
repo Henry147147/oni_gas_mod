@@ -58,6 +58,14 @@ few that your task touches, starting here.
   `publish/update-1.13.0` and `releases/1.13.0`; every release step has
   passed ([what ran](docs/playtest-1.13.0.md#staged-package)) and the upload
   waits for the user's go-ahead.
+  [1.13.6](docs/playtest-1.13.6.md) is 1.13.5 with clearer refusals (user
+  request 2026-11-25): a player on a supported build was told that the mod
+  "does not support this version of Oxygen Not Included" because other mods
+  had patched game methods the mod uses
+  ([why a patch reads as a change](docs/game-update-resilience.md#other-mods)).
+  Each cause now has its own notice; the conflict notice names the mods and
+  where to report. Whether the mod should run beside such mods is an open
+  user decision. It inherits the hold of 1.13.5.
   [1.13.5](docs/playtest-1.13.5.md) is the candidate of the frame-rate
   round, held back by the user (2026-11-24): **no release or upload until
   every error found in that round is fixed.** It adds to 1.13.4 the user's

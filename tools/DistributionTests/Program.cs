@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -61,6 +62,71 @@ static class Program
         Check(keepRunning.Contains("delete or disable the copy in\n  /m/Dev/MixedAtmospheres.IntegrationProbe\nand keep\n  /m/Steam/123"), keepRunning);
         var two = ModAdmission.DuplicateNotice("/m/Dev/A", "Dev", "/m/Local/B", "Local");
         Check(two.Contains("copy in\n  /m/Local/B\nand keep\n  /m/Dev/A") && two.Contains("(Dev, running)") && two.Contains("(Local, not loaded)"), two);
+    }
+
+    // Why the mod stays off before patching anything: one text per cause
+    // (docs/game-update-resilience.md#refusals). Only a build the mod has no
+    // adapter for may say that an update is needed.
+    private static void GameRefusals()
+    {
+        const string Updates = "Mixed Atmospheres update";
+        var newer = ModAdmission.UnsupportedBuild("1.13.6", 770001, 764025);
+        Check(newer.Notice.Contains("Mixed Atmospheres 1.13.6 does not support this version of Oxygen Not Included") && newer.Notice.Contains("the game is build 770001") &&
+            newer.Notice.Contains("for build 764025") && newer.Notice.Contains(Updates) && newer.Notice.Contains("has not changed the game"), newer.Notice);
+        Check(newer.LoadRefusal.Contains("(build 770001)") && newer.LoadRefusal.Contains("Install a Mixed Atmospheres update") &&
+            newer.LoadRefusal.Contains("The save has not been changed."), newer.LoadRefusal);
+        var older = ModAdmission.UnsupportedBuild("1.13.6", 700000, 744825);
+        Check(older.Notice.Contains("Update Oxygen Not Included") && !older.Notice.Contains(Updates) && older.LoadRefusal.Contains("Update Oxygen Not Included, then load"), older.Notice);
+        Check(ModAdmission.UnsupportedBuild("1.13.6", 0, 764025).Notice.Contains("an unknown build"), "unreadable build number");
+
+        KeyValuePair<string, string[]> Part(string method, params string[] mods) => new KeyValuePair<string, string[]>(method, mods);
+        var one = ModAdmission.OtherMods(764025, new[] { Part("SaveLoader.Save", "Fast Track") });
+        Check(one.Notice.Contains("another mod has changed game code it depends on") && one.Notice.Contains("supports your game (build 764025): neither is out of date") &&
+            one.Notice.Contains("One game method it uses was patched by:\n  - Fast Track (one method)") && one.Notice.Contains("Try disabling that mod") &&
+            one.Notice.Contains("Steam Workshop") && one.Notice.Contains("github.com/Henry147147/oni_gas_mod/issues") && one.Notice.Contains("Player.log") &&
+            !one.Notice.Contains(Updates) && !one.Notice.Contains("does not support"), one.Notice);
+        Check(one.LoadRefusal.Contains("because other mods have changed game code") && one.LoadRefusal.Contains("Disable those mods and restart the game, then load the colony again.") &&
+            !one.LoadRefusal.Contains("update"), one.LoadRefusal);
+        Check(one.Details.SequenceEqual(new[] { "SaveLoader.Save <- Fast Track" }), "conflict details");
+        // Mods in the order of how much they patched; a mod counts a method once.
+        var many = ModAdmission.OtherMods(764025, new[]
+        {
+            Part("SaveLoader.Save", "B Mod", "A Mod", "A Mod"), Part("SaveLoader.LoadHeader", "A Mod"), Part("CustomGameSettings.SetQualitySetting", "A Mod"),
+            Part("Game.Save", "C3"), Part("Game.Load", "C4"), Part("Game.A", "C5"), Part("Game.B", "C6"), Part("Game.C", "C7"), Part("Game.D", "C8"),
+        });
+        Check(many.Notice.Contains("other mods have changed") && many.Notice.Contains("9 game methods it uses were patched by:\n  - A Mod (3 methods)\n  - B Mod (one method)\n  - C3 (one method)") &&
+            many.Notice.Contains("  - C6 (one method)\n  - and 2 more mods (listed in Player.log)") && !many.Notice.Contains("C7") &&
+            many.Notice.Contains("Try disabling those mods") && many.Notice.Contains("To use them together"), many.Notice);
+        Check(many.Details.Count == 9 && many.Details[0] == "SaveLoader.Save <- B Mod, A Mod, A Mod", "every patched method is in the details");
+
+        var files = ModAdmission.GameFiles(764025, new[]
+        {
+            "changed static SaveLoader::LoadHeader(System.String,SaveGame/Header&)SaveGame/GameInfo", "missing property SaveGame/Header::buildVersion:System.UInt32[]",
+            "changed patch target Game::Save(System.IO.BinaryWriter)System.Void", "changed named KCompactedVector<!0>::GetData", "patched by another mod: named SaveLoader::Save",
+        });
+        Check(files.Notice.Contains("reports a version the mod supports (build 764025), but 5 parts of its code differ") &&
+            files.Notice.Contains("  - SaveLoader.LoadHeader\n  - SaveGame.Header.buildVersion (missing)\n  - Game.Save\n  - and 2 more (listed in Player.log)") &&
+            files.Notice.Contains("The game is not out of date") && files.Notice.Contains("Verify integrity of game files") && files.Notice.Contains("disabling other mods") &&
+            files.Notice.Contains("github.com/Henry147147/oni_gas_mod/issues") && !files.Notice.Contains(Updates), files.Notice);
+        Check(files.Details.Count == 5 && files.Details[0].Contains("SaveGame/Header&"), "the log keeps the full form");
+        var native = ModAdmission.GameFiles(764025, new[] { "the game's native simulator (SimDLL): unsupported image" });
+        Check(native.Notice.Contains("one part of its code differs") && native.Notice.Contains("  - the game's native simulator (SimDLL): unsupported image"), native.Notice);
+        Check(ModAdmission.ShortPart("changed named KCompactedVector<!0>::GetData") == "KCompactedVector<!0>.GetData" &&
+            ModAdmission.ShortPart("new patch target static Sim::Step()System.Void") == "Sim.Step (new)" && ModAdmission.ShortPart("changed named Game::*") == "Game.*" &&
+            ModAdmission.ShortPart("this is no member") == "this is no member", "short names");
+
+        var installation = ModAdmission.Installation("the game contract is missing");
+        Check(installation.Notice.Contains("its own files are incomplete or come from two versions (the game contract is missing)") && installation.Notice.Contains("The game is not out of date") &&
+            installation.Notice.Contains("Unsubscribe from the mod and subscribe again") && installation.LoadRefusal.Contains("Reinstall Mixed Atmospheres, then load"), installation.Notice);
+        var failed = ModAdmission.CheckFailed("boom");
+        Check(failed.Notice.Contains("its check of the game failed: boom") && failed.Notice.Contains("try disabling other mods") && failed.Notice.Contains("Player.log") &&
+            !failed.Notice.Contains(Updates), failed.Notice);
+        var start = ModAdmission.StartFailure("boom");
+        Check(start.Contains("could not start and has removed all of its changes, so the game runs as normal: boom") && start.Contains("try disabling other mods") &&
+            start.Contains("github.com/Henry147147/oni_gas_mod/issues"), start);
+        foreach (var refusal in new[] { newer, older, one, many, files, native, installation, failed })
+            Check(refusal.Kind.Length != 0 && refusal.Details.Count != 0 && refusal.Notice.Contains("can be loaded again once") &&
+                refusal.LoadRefusal.StartsWith("This colony uses Mixed Atmospheres, which is not active ", StringComparison.Ordinal), "complete refusal: " + refusal.Kind);
     }
 
     private static bool Refused(Action parse, string why)
@@ -182,7 +248,7 @@ static class Program
 
     private static int Main()
     {
-        Platforms(); Packs(); Duplicates(); SyntheticEnvelopes();
+        Platforms(); Packs(); Duplicates(); GameRefusals(); SyntheticEnvelopes();
         var real = RealEnvelopes();
         var content = PreparedContent();
         Console.WriteLine(content == 0 ? "Prepared base saves: none available, skipped." : $"Prepared base saves: {content} content decisions pinned.");

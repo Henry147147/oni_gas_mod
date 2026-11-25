@@ -91,11 +91,13 @@ namespace MixedAtmospheres.Oni
                 Check(Attach(ref config, ref status));
             });
         }
+        internal const string OtherModBuild = "the mod's native library is from a different build of the mod";
+
         // Null when the native library accepts the game's SimDLL; otherwise
         // its reason. Hashes files only: nothing is attached or changed.
         internal static string? ProbeGame(string directory)
         {
-            if (NativeVersion() != 4) return "the mod's native library is from a different build of the mod";
+            if (NativeVersion() != 4) return OtherModBuild;
             var path = Marshal.StringToCoTaskMemUTF8(directory);
             try
             {

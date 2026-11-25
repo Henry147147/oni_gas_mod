@@ -4,8 +4,11 @@
  * and calls MixedAtmospheres.Oni.GameContractCheck.SelfCheck with the folder's
  * game-contract.json (Harmony's PatchAll itself needs the Unity player):
  * reflection only; no game code, Harmony patch or native simulator runs.
+ * With OTHER_MOD_ASSEMBLY, that assembly's OtherMod.Patch() runs first, as a
+ * mod that loaded earlier and patched game methods would have (the patches
+ * are installed, never called); the caller judges the printed result.
  *
- *   python3 tools/game_mono_contract_check.py --game GAME_ROOT --mod MOD_DIRECTORY
+ *   python3 tools/game_mono_contract_check.py --game GAME_ROOT --mod MOD_DIRECTORY [--other-mod]
  */
 #include <dlfcn.h>
 #include <stdio.h>
@@ -26,7 +29,7 @@ typedef void* (*tostring_fn)(void*, void**);
 typedef void (*config_fn)(const char*);
 
 int main(int argc, char** argv) {
-    if (argc != 6) { fprintf(stderr, "usage: %s GAME_ROOT MOD_DIRECTORY ASSEMBLY_DIRECTORY MANAGED_DIRECTORY PLATFORM\n", argv[0]); return 2; }
+    if (argc != 6 && argc != 7) { fprintf(stderr, "usage: %s GAME_ROOT MOD_DIRECTORY ASSEMBLY_DIRECTORY MANAGED_DIRECTORY PLATFORM [OTHER_MOD_ASSEMBLY]\n", argv[0]); return 2; }
     char library[4096], managed[4096], etc[4096], search[8192], assembly[4096];
     snprintf(library, sizeof library, "%s/OxygenNotIncluded_Data/MonoBleedingEdge/x86_64/libmonobdwgc-2.0.so", argv[1]);
     snprintf(managed, sizeof managed, "%s", argv[4]); /* the game assemblies to check */
@@ -51,6 +54,15 @@ int main(int argc, char** argv) {
     void* check = mono_class_from_name(mono_assembly_get_image(opened), "MixedAtmospheres.Oni", "GameContractCheck");
     void* method = check ? mono_class_get_method_from_name(check, "SelfCheck", 2) : NULL;
     if (!method) { fprintf(stderr, "GameContractCheck.SelfCheck is missing\n"); return 2; }
+    if (argc == 7) {
+        void* other = mono_domain_assembly_open(domain, argv[6]);
+        void* type = other ? mono_class_from_name(mono_assembly_get_image(other), "", "OtherMod") : NULL;
+        void* patch = type ? mono_class_get_method_from_name(type, "Patch", 0) : NULL;
+        if (!patch) { fprintf(stderr, "OtherMod.Patch is missing in %s\n", argv[6]); return 2; }
+        void* failure = NULL;
+        mono_runtime_invoke(patch, NULL, NULL, &failure);
+        if (failure) { void* inner = NULL; fprintf(stderr, "%s\n", mono_string_to_utf8(mono_object_to_string(failure, &inner))); return 2; }
+    }
     char contract_path[4096];
     snprintf(contract_path, sizeof contract_path, "%s/game-contract.json", argv[2]);
     FILE* file = fopen(contract_path, "rb");
@@ -65,5 +77,5 @@ int main(int argc, char** argv) {
     if (exception) { void* inner = NULL; fprintf(stderr, "%s\n", mono_string_to_utf8(mono_object_to_string(exception, &inner))); return 1; }
     const char* text = mono_string_to_utf8(result);
     puts(text);
-    return strstr(text, ", 0 differences") ? 0 : 1;
+    return argc == 7 || strstr(text, ", 0 differences") ? 0 : 1;
 }
