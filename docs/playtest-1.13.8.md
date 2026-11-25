@@ -78,9 +78,9 @@ runs ([why that matters](game-update-resilience.md#other-mods)).
 | New unit tests: the reader on synthetic saves of 7.38, 7.39 and 7.40, compressed and not; 7.37, another major version, a KSAV header that disagrees | `OwnedReservoirLayoutTests` 84 groups, `OwnedReservoirSavedInspectionTests` 64 groups |
 | Control, 1.13.7 package, Linux game 764025: a stand-in mod keeps the mod off, the main menu resumes the Cycle 128 save | not refused: the game loads it, "SimDLL found bad data", an exception in `SaveLoader.Load`, the crash screen |
 | The same, this version | refused before loading, with the notice for a mod conflict; the game stays at the main menu |
-| The same, this version, the Cycle 33 save (7.38) | recorded with the package's runs |
+| The same, this version, the Cycle 33 save (7.38) | refused before loading as well |
 | The fifteen saves, 1.13.7 release package, seven other mods (the first four run: Cycles 127 to 130) | each loads, runs 300 ticks at speed 3 and saves; no exception |
-| This version's source, seven other mods, the Cycle 128 save | loads through the load screen with the checks before loading now reading the save (about one second for this 74 MB colony), runs 300 ticks and saves; no refusal, no exception |
+| This version's source, seven other mods, the Cycle 33, 44, 49, 55, 70 and 128 saves | each loads, runs and saves; the Cycle 128 save loads through the load screen with the checks before loading now reading the save (about one second for this 74 MB colony), no refusal, no exception |
 
 The package's builds and acceptance run are recorded under
 [Staged package](#staged-package).
@@ -95,12 +95,11 @@ difference it has seen between the mass it holds and the mass its ledger
 books (`MaximumRelativeMassError`; the figure is saved with the colony). The
 owner stops a colony when a frame exceeds 1e-8. The in-game harnesses ask
 more of their own short test colonies: 1e-12. The user's colony stands at
-6.6e-14 at Cycle 33, 8.8e-13 at Cycle 44 and 2.76e-12 from Cycle 127 on: it
-grows slowly with the amount of fluid that has passed through the colony,
-and is 3,600 times below the owner's bound.
+6.6e-14 at Cycle 33, 8.8e-13 at Cycles 44 to 55 and 2.76e-12 from Cycle 70
+on: it is 3,600 times below the owner's bound.
 
 The Windows harness applies its 1e-12 to every colony it loads, so it
-reports the saves from Cycle 127 on as `failed-colony-owner-evidence`
+reports the saves from Cycle 70 on as `failed-colony-owner-evidence`
 although the game loaded the colony, ran it and saved it without an error.
 The Linux harness does not apply that bound to a loaded colony. The bound
 is an acceptance bound and stays as it is; the runs on the Windows build
@@ -128,10 +127,45 @@ and their harness verdict is given beside it.
 
 ## Staged package
 
-The builds, the package for the three game builds, the fifteen saves with
-the seven other mods on the release package (Linux game 764025), the latest
-save with those mods on the Windows build under Proton, the two controls
-with the mod off, the Workshop dry run, the load matrix and the patch tier
-run on this version's revision before the upload. The release tier runs
-after it, on the steps that touch what changed. Results are recorded here
-once they have run.
+`6dd5a59` is staged on the private share as `publish/update-1.13.8` and
+`releases/1.13.8` since 2026-11-25 14:36 UTC, and was uploaded to the
+Workshop at 15:21 UTC with `tools/workshop.py`
+([the upload](workshop-upload.md#what-has-been-verified)).
+
+| Step, on `6dd5a59`, before the upload | Result |
+| --- | --- |
+| Release builds (Linux for Ubuntu 22.04, Windows), package for game builds 744825, 763796 and 764025, archive verification | passed |
+| The fifteen saves on the release folder with the seven other mods (Linux game 764025; each through the load screen, 300 ticks at speed 3, then a save) | 15 of 15; no exception in any log, no refusal ([below](#the-fifteen-saves)) |
+| The mod off (stand-in mod), the main menu resumes the Cycle 128 save and the Cycle 33 save, release folder | 2 of 2 refused before loading |
+| The Cycle 130 and Cycle 33 saves with the seven mods, Windows game 764025 under Proton, release folder | both load, run 300 ticks and save without an error; the harness's own verdict for Cycle 130 is `failed-colony-owner-evidence` ([why](#found-while-testing-the-ledger-figure-of-a-long-colony)) |
+| Workshop dry run | passed; nothing was sent |
+| Load matrix (the three game builds, Linux and Windows under Proton) | 6 of 6 |
+| Patch tier | 6 of 6 |
+
+After the upload, on the same revision: the other thirteen saves on the
+Windows build, and the release-tier steps that load or save a colony, with
+the new `linux-resume-refused`. Their results are recorded here once they
+have run.
+
+### The fifteen saves
+
+On the release folder, Linux game 764025, seven other mods. The Cycle 33
+colony crosses a day rollover in its 300 ticks, so it also autosaves.
+
+| Save | Restored at owner frame | Owned cells | Saved at frame | Result |
+| --- | --- | --- | --- | --- |
+| Cycle 33 (published session, 2026-11-19; game build 744825, save 7.38) | 101,524 | 82,192 | 101,778 | passed |
+| Cycle 44 (manual save, 2026-11-21) | 133,995 | 84,595 | 134,297 | passed |
+| Cycle 49 | 143,777 | 84,809 | 144,079 | passed |
+| Cycle 55 | 161,779 | 86,433 | 162,081 | passed |
+| Cycle 70 (manual save, 2026-11-23) | 210,819 | 87,827 | 211,121 | passed |
+| Cycle 121 | 359,819 | 88,073 | 360,121 | passed |
+| Cycle 122 | 362,819 | 88,073 | 363,121 | passed |
+| Cycle 123 | 365,818 | 88,075 | 366,120 | passed |
+| Cycle 124 | 368,819 | 88,075 | 369,121 | passed |
+| Cycle 125 | 371,818 | 88,076 | 372,120 | passed |
+| Cycle 126 | 374,819 | 88,076 | 375,121 | passed |
+| Cycle 127 | 377,819 | 88,076 | 378,121 | passed |
+| Cycle 128 | 380,821 | 88,076 | 381,123 | passed |
+| Cycle 129 | 383,820 | 88,069 | 384,122 | passed |
+| Cycle 130 | 386,821 | 88,069 | 387,123 | passed |

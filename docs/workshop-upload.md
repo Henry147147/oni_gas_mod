@@ -55,12 +55,13 @@ Uploads so far:
 | 2026-11-24 02:53 | 1.13.3 | `6a116e5` | `status` on 2026-11-24: every file as the manifest pins it |
 | 2026-11-24 23:01 | 1.13.5 | `993c3c3` | `status` on 2026-11-25: every file as the manifest pins it; uploaded by the user while its release chain was running |
 | 2026-11-25 03:09 | 1.13.6 | `d63861d` | `status` on 2026-11-25: every file as the manifest pins it; uploaded by the user while its release chain was running |
+| 2026-11-25 15:21 | 1.13.8 | `6dd5a59` | uploaded with `tools/workshop.py` at the user's request of that day (the tool's first upload); it printed `UPLOADED AND VERIFIED`, and `status --package` agrees file for file |
 
 The first four were uploaded by the user with Klei's uploader; this project's
 record does not say how 1.12.2.3 and 1.13.3 were uploaded (1.13.3 went up
 while its acceptance run was still in progress; [its
-result](playtest-1.13.3.md#staged-package)). Add a line for each
-later upload.
+result](playtest-1.13.3.md#staged-package)). 1.13.7 was staged and never
+uploaded; 1.13.8 contains it. Add a line for each later upload.
 
 ## Uploading a version
 
@@ -204,8 +205,14 @@ path that the commit uses.
   holds no copy of the upload file yet. The only blocker reported was Offline
   Mode, as intended.
 
-Not yet run: `preflight` against an online client (Steam's own record of the
-item, which is the first asynchronous call), and the writing calls. No upload
-has been made with this tool. The first authorized upload is their first run;
-if Steam refuses a step, the item keeps its file, and the upload by hand above
-remains available.
+- The whole procedure, on 2026-11-25 for 1.13.8: Steam → Go Online in the
+  private client (no sign-in was asked for), `preflight` online (Steam's own
+  record of the item, the first asynchronous call), `upload --execute` (the
+  file written to the uploader's Steam Cloud and read back, the item updated
+  with the change note, the public record changed within the same minute,
+  the published file downloaded and equal to the folder file for file), then
+  Steam → Go Offline and OFFLINE MODE shown again. The record is
+  `artifacts/v1.13.8/6dd5a59/workshop-upload`.
+
+The Windows route (`steam_api64.dll` with the user's own client) has not been
+run; the upload by hand above remains available.

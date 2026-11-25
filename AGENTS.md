@@ -67,8 +67,8 @@ few that your task touches, starting here.
   mods those saves were played with
   ([the fifteen saves and the mods](docs/playtest-1.13.8.md#the-saves-on-the-share);
   the copies are in `local/saves/share-2026-11-25` and `local/other-mods`),
-  and for the version to be uploaded
-  ([what ran](docs/playtest-1.13.8.md#staged-package)).
+  and for the version to be uploaded: it is on the Workshop since
+  2026-11-25 15:21 UTC ([what ran before and after](docs/playtest-1.13.8.md#staged-package)).
   [1.13.7](docs/playtest-1.13.7.md) is 1.13.6 with the fix for the user's
   report of 2026-11-25 on it: a colony with a Fertilizer Synthesizer (or
   another building that emits a gas through `BuildingElementEmitter`) threw an
@@ -139,7 +139,7 @@ few that your task touches, starting here.
   [the 0.1.1 playtest review](docs/playtest-0.1.1-review.md).
   The `docs/handoff-codex-*.md` files are historical; continue on `main`.
 - [docs/workshop-upload.md](docs/workshop-upload.md): the Steam Workshop item,
-  what it serves (`python3 tools/workshop.py status`: 1.13.6, `d63861d`, on
+  what it serves (`python3 tools/workshop.py status`: 1.13.8, `6dd5a59`, on
   2026-11-25) and the upload procedure. The tool only reads unless it is given
   `--execute` with the user's go-ahead for that version.
 - [docs/playtest-plan.md](docs/playtest-plan.md): the original first-playtest
