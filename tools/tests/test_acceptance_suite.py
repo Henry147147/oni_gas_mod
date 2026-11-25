@@ -91,19 +91,33 @@ class PlanTests(unittest.TestCase):
         import oni_headless
         ran = [name for s in suite.plan("release") if s.kind == "batch" for name in s.options["scenario"].split(",")]
         self.assertEqual(set(oni_headless.SCENARIOS) - set(ran), set(suite.UNTIERED_SCENARIOS))
-        self.assertEqual(len(ran), len(set(ran)) + 3)  # the three rocket chains each build their rocket first
+        # The three rocket chains each build their rocket first; the four every-building parts run with the base
+        # game's buildings and with Spaced Out!'s.
+        self.assertEqual(len(ran), len(set(ran)) + 3 + 4)
         self.assertEqual(set(ran) - set(oni_headless.SCENARIOS), set())
         first = {name for batch in suite.LINUX_BATCHES for name in batch.split(",")}
         self.assertEqual({name for batch, *_ in suite.LINUX_EXTRA_BATCHES for name in batch.split(",")} & first, set())
 
     def test_remaining_scenarios_carry_their_content_arguments_and_environment(self):
-        steps = {s.options["scenario"]: s for s in suite.plan("release") if s.name.startswith("linux-x")}
+        extra = [s for s in suite.plan("release") if s.name.startswith("linux-x")]
+        steps = {s.options["scenario"]: s for s in extra}
         package, out = Path("/p"), Path("/o")
-        for scenario, step in steps.items():
+        # Batches that need Spaced Out! content besides those named for it: uranium ore, rockets, its critters.
+        with_spaced_out = {"full-colony-spacedout", "message-edges,germ-cleaner", "every-rocket-building",
+                           "every-living-1", "every-living-2", "every-living-3"}
+        building_parts = {}
+        for step in extra:
+            scenario = step.options["scenario"]
             command = suite.linux_command(step, package, out, CommandTests.infra)
-            spaced_out = scenario.startswith("spaced-out-") or scenario == "full-colony-spacedout"
-            self.assertEqual(command[command.index("--dlc-mask") + 1], "1" if spaced_out else "0", scenario)
+            mask = command[command.index("--dlc-mask") + 1]
             self.assertEqual(command[command.index("--scenario") + 1], scenario)
+            if scenario.startswith("every-building-"):
+                building_parts.setdefault(scenario, set()).add(mask)
+                self.assertEqual(command[command.index("--scenario") + 2:], ["--speed", "3"])
+                continue
+            spaced_out = scenario.startswith("spaced-out-") or scenario in with_spaced_out
+            self.assertEqual(mask, "1" if spaced_out else "0", scenario)
+        self.assertEqual(building_parts, {f"every-building-{part}": {"0", "1"} for part in (1, 2, 3, 4)})
         lifecycle = suite.linux_command(steps["activity-lifecycle"], package, out, CommandTests.infra)
         self.assertEqual(lifecycle[lifecycle.index("--scenario") + 2:], ["--save-colony", "--frames", "450", "--speed", "3"])
         self.assertEqual(steps["germ-oracle"].options["env"], {"MA_COLONY_GERM_ORACLE": "1"})

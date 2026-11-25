@@ -127,9 +127,27 @@ LINUX_EXTRA_BATCHES = (
     ("full-colony-base", 0, (), {}),
     # A building that reads its own emission back from the game's data (docs/playtest-1.13.7.md).
     ("building-emitter", 0, (), {}),
+    # Unusual forms of the game's messages, and a Sanishell's germ cleaning (docs/playtest-1.13.9.md).
+    ("message-edges,germ-cleaner", 1, (), {}),
+    # Every building, rocket module, rocket interior building, critter, plant and geyser of the content, one at
+    # a time, against what each logs under ONI's own simulation (docs/colony-owner.md#every-building). The base
+    # game's buildings differ from Spaced Out!'s (its rockets), so the building parts run with each.
+    ("every-building-1", 1, ("--speed", "3"), {}),
+    ("every-building-2", 1, ("--speed", "3"), {}),
+    ("every-building-3", 1, ("--speed", "3"), {}),
+    ("every-building-4", 1, ("--speed", "3"), {}),
+    ("every-building-1", 0, ("--speed", "3"), {}),
+    ("every-building-2", 0, ("--speed", "3"), {}),
+    ("every-building-3", 0, ("--speed", "3"), {}),
+    ("every-building-4", 0, ("--speed", "3"), {}),
+    ("every-rocket-building", 1, ("--speed", "3"), {}),
+    ("every-living-1", 1, ("--speed", "3"), {}),
+    ("every-living-2", 1, ("--speed", "3"), {}),
+    ("every-living-3", 1, ("--speed", "3"), {}),
 )
 # In-game scenarios that no Linux batch runs, and why.
 UNTIERED_SCENARIOS = {
+    "every-building": "the whole building list in one game; its four parts run it in the release tier",
     "windows-contact": "the WindowsPlayer contact step's own scenario",
     "mixed-storage-heat": "a strict diagnostic of development-only exact storage that exceeds its own bound by the "
                           "0.703 J the user accepted on 2026-10-26 (docs/mixed-pipes.md); it needs the paired heat "

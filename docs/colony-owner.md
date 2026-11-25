@@ -394,6 +394,15 @@ Each emitter's added mass is booked per element to an external source
 ledger named after what stands at its cell (a geyser, a building;
 `EmitterSources` in the report).
 
+A single withdrawal (`SimMessages.ConsumeMass`: a Pitcher Pump's bottle, a
+duplicant's or a critter's sip) is the owner's as well, wherever its cell
+lies inside the owner's rectangle. One exception is ONI's: a withdrawal of a
+solid element. A Beeta mines a uranium ore tile this way
+(`BeeForageStates.MineTarget`: the tile's own element, radius 1), and the
+owner holds no solids. Until 1.13.9 the owner claimed that request too: it
+never reached ONI, the Beeta's callback got 0 kg and the tile kept its mass,
+where ONI takes 10 kg from the tile (scenario `message-edges`).
+
 <a id="the-emitted-mass-table"></a>
 ONI's data of each frame also carries an emitted-mass table: one record per
 emitter, at the index in its handle's low 24 bits, with what the emitter put
@@ -681,6 +690,29 @@ An actual fresh profile3/core21 base run passes 32 observations/32 rows with
 zero stale reads, alongside the existing four base checks and an ordinary save.
 This verifies live ABI/projection agreement, without accepting full world
 minority biology.
+
+<a id="germ-cleaners"></a>
+### Germ emitters that remove germs
+
+ONI's native simulation runs every germ emitter (`DiseaseEmitter`). One that
+adds germs adds them to ONI's own cells, where the owner finds them. One with
+a negative count removes germs: a Sanishell while it cleans the liquid it
+stands in (`CrabFreshWaterConfig`, `CreatureDiseaseCleaner`). While the owner
+evolves the world's germs, ONI's cells hold none, so that emitter found
+nothing to remove and, until 1.13.9, a Sanishell cleaned nothing.
+
+The owner now applies such an emitter itself (`ColonyGermCleaners`), in a
+colony whose germs it evolves; a legacy colony's shown germ stands in ONI's
+cells, where ONI's own emitter still acts. It reads
+the emitter's cell, disease, depth, interval and count from the game's own
+messages (which still reach ONI, the keeper of the emitter's handle) and,
+once per interval of game time, takes the count from the emitter's cell and
+from every open cell of the same world within depth − 1 steps of it: for a
+Sanishell (depth 2, 889 germs, one second) its own cell and the four next to
+it, 4,445 germs a second. That is what ONI does, measured cell by cell under
+its own simulation; a cell's culture ends at zero at least. In scenario
+`germ-cleaner` the Sanishell's pool goes from 239,976 to 129,390 germs in
+33 s under the owner and from 239,988 to 129,399 under ONI.
 
 ## Machines
 
@@ -2193,6 +2225,11 @@ The home asteroid of a Spaced Out! colony is 160 cells wide with the printing po
 | `bottle-emptier` | A gas canister emptier releases its stored carbon dioxide into the owner, and a bottle emptier's water falls as particles into owned cells. |
 | `gas-generator` | A natural gas generator burns stored methane; its carbon dioxide goes through its exhaust pipe and a vent into the owner. |
 | `building-emitter` | A Fertilizer Synthesizer runs: its natural gas reaches the owner, the game's data holds [the emitted-mass table](#the-emitted-mass-table) for its handle, and the building reads the rate it emits at (10 g/s). |
+| `message-edges` | Unusual forms of the game's messages: a withdrawal from a rectangle (the Pitcher Pump) takes from its rectangle only; a withdrawal from a solid tile (a Beeta mining uranium ore) takes the tile's mass and answers with it, because [a solid element's withdrawal is ONI's](#element-consumers-and-emitters); a dig of the backwall alone leaves the tile in front closed. Also runs under `--mode colony-vanilla`, its reference. |
+| `germ-cleaner` | Two pools of water with food poisoning germs behind a wall; a Sanishell with its emitter on cleans the left one: it loses about 9,200 germs a cell in 33 s, the other pool keeps its germs ([germ emitters with a negative count](#germ-cleaners)). Also runs under `--mode colony-vanilla`, its reference. |
+| `every-building-1` to `-4`, `every-building` | [Every building](#every-building) of the active content in four parts (or one): each built complete in a sealed room, left for 22 ticks, removed; none logs an exception or an error beyond what it logs under ONI's own simulation, the owner runs without a fault and the ledgers close. Under `--mode colony-vanilla` the same run records that baseline. |
+| `every-rocket-building` | Spaced Out!: each rocket engine on a launch pad, each other rocket module on an engine and each rocket interior building inside a habitat's interior, with the same checks. |
+| `every-living-1` to `-3` | Each critter, plant and geyser of the active content, spawned in the same room for 22 ticks, with the same checks. |
 | `germs` | Slimelung released with polluted oxygen spreads with the gas. |
 | `puft` | A puft breathes the arena's polluted oxygen out of the owner. |
 | `plant` | A wild mealwood in owned oxygen reads normal pressure and a safe atmosphere; one in thinner air beyond a wall reads low pressure. |
@@ -2239,6 +2276,55 @@ The home asteroid of a Spaced Out! colony is 160 cells wide with the printing po
 | `spaced-out-dehydrator` | A food dehydrator's byproduct water, dropped as when emptied, falls into owned cells. |
 | `spaced-out-critters` | Spaced Out!: a Beeta in carbon dioxide falls asleep and its element consumer takes the gas from the owner (receipts equal the owner's loss); a gas Staterpillar absorbs the arena's carbon dioxide into its storage and its connector pushes it through a pipe to a vent, and a liquid Staterpillar does the same with a pool's water; owner, pipe, creature and vent keep every kilogram. |
 | `spaced-out-plants` | Spaced Out!: the swamp harvest, worm, super worm, filter, cylindrica, wine cups, toe and critter trap plants read normal pressure and a safe atmosphere in owned oxygen, a wrong atmosphere in hydrogen and (the pressure-sensitive ones) low pressure in thin air; the filter plant's consumer takes oxygen from the owner and a digesting critter trap plant vents its hydrogen into it. |
+
+<a id="every-building"></a>
+### Every building
+
+The Fertilizer Synthesizer's fault ([1.13.7](playtest-1.13.7.md)) needed no
+input and no power: the building only had to stand in an owned colony, and
+no scenario had ever placed one. `every-building`, `every-rocket-building`
+and `every-living` place everything, one subject at a time
+(`ColonyScenarios.EveryBuilding.cs` and its two neighbours):
+
+- **The room.** 16 × 12 cells of oxygen at 300 K over a granite floor, sealed
+  like every arena. Between subjects the room's objects are removed and every
+  cell that changed is replaced, so no subject meets what another left.
+- **A subject's 22 ticks.** Built complete with the game's own
+  `BuildingDef.Build` (a critter, plant or geyser instantiated as the game
+  spawns it), left for 22 owner ticks, so each 200 ms, 1 s and 4 s update of
+  its components runs at least once, then destroyed. Three more ticks belong
+  to it, for what its removal logs.
+- **What counts.** Every exception, error and assertion the game logs in that
+  window (`Application.logMessageReceived`), reduced to a signature: the kind,
+  the first line without its digits, the first game frame of the trace. A
+  building that removes itself in the window, or does not fit the room, is
+  recorded the same way.
+- **The baseline.** Some subjects log an error wherever they are placed like
+  this, with or without the mod (a geyser prefab without its configuration,
+  an ice sculpture that melts at 300 K). The same scenario under
+  `--mode colony-vanilla` records what each logs under ONI's own simulation;
+  those signatures are `EveryBuildingBaseline` in the source, and the mod's
+  run fails on anything beyond them. Regenerate the table from the
+  `every-*.json` reports of the vanilla runs when a game build changes it.
+- **Rockets.** A rocket module built alone has no craft, and a rocket
+  interior building outside a rocket has no circuit: ONI's own circuit
+  manager then throws at every frame, also without the mod. They are built
+  where they belong by `every-rocket-building`, through the player's own
+  construction commands (`LaunchPad.AddBaseModule`,
+  `ReorderableBuilding.AddModule`) and removed through
+  `ReorderableBuilding.RemoveModule`.
+
+A subject is idle in its 22 ticks: it has no power, no inputs and no
+duplicant. What a building does when it runs stays with the scenarios that
+run it.
+
+At the end of every harness run the owner's actors are also counted against
+the game (`ColonyActors.GameCensus`, `ActorCensus` in the report): every
+`ElementConsumer`, `ElementEmitter` and `BuildingElementEmitter` of the game
+that holds a simulation handle must be run by the owner, as a consumer or an
+emitter as it is, for that component, and no two may share a handle. A
+mismatch fails the run. On the user's Cycle 130 colony the game holds 42
+consumers and 19 emitters and the owner runs exactly those.
 
 ### Floor arenas
 

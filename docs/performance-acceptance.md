@@ -291,7 +291,8 @@ affected systems. `plan --tier patch` accepts the same scenario selection.
 Use the quick/release tiers for the complete gameplay and starting-asteroid
 matrix, UI, DLC and long-run coverage. Since 1.13.5 the release tier also
 runs every in-game scenario that the fifteen original batches leave out
-(`LINUX_EXTRA_BATCHES`, steps `linux-x1` onwards: 36 Linux games, the
+(`LINUX_EXTRA_BATCHES`, steps `linux-x1` onwards: 49 Linux games since
+1.13.9, with [every building, critter, plant and geyser](colony-owner.md#every-building), the
 Spaced Out! ones with that content selected, a chain's scenarios in one game
 in the order they build on each other, a control with the switch its notes
 ask for). Until then no tier ran those 61 scenarios and five had stopped

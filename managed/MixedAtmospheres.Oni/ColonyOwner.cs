@@ -121,7 +121,7 @@ namespace MixedAtmospheres.Oni
         internal static void ResetForNewSession()
         {
             receiptPump.Reset();
-            ColonyPresentation.Reset(); ColonyActivity.Reset(); ColonyActors.Reset(); ColonyViewCache.Reset(); ColonyConduits.Reset(); ColonyWorldGerms.Reset(); ColonyRadiationGerms.Reset(); ColonyNotices.Reset(); ColonyBalance.Reset(); ColonyDlcFluidReaders.Reset();
+            ColonyPresentation.Reset(); ColonyActivity.Reset(); ColonyActors.Reset(); ColonyGermCleaners.Reset(); ColonyViewCache.Reset(); ColonyConduits.Reset(); ColonyWorldGerms.Reset(); ColonyRadiationGerms.Reset(); ColonyNotices.Reset(); ColonyBalance.Reset(); ColonyDlcFluidReaders.Reset();
             publication.Clear();
             if (Active) { var s = OniNativeColony.Status.Empty; _ = OniNativeColony.Stop(ref s); }
             ColonyPacing.Reset(); ColonyOwnerPersistence.Reset(); ModSettingsRuntime.Reset();
@@ -888,12 +888,14 @@ namespace MixedAtmospheres.Oni
         }
         private static bool Handle(int message, int length, int count, byte* payload)
         {
+            ColonyGermCleaners.Observe(message, length, count, payload);
             if (ColonyActors.TryHandle(message, length, count, payload, Active)) return true;
             if (!Active) return false;
             if (message == NewGameFrame && length >= 4)
             {
                 var begun = publicationLog ? System.Diagnostics.Stopwatch.GetTimestamp() : 0;
                 if (*(float*)payload > 0) { ColonyFrameLog.TickPosted(); using (ColonyFrameLog.Track("tick_space_exposure")) RefreshSpaceExposure(); }
+                ColonyGermCleaners.Tick(*(float*)payload);
                 ColonyActivity.QueueFrame(*(float*)payload, settle: true);
                 if ((publicationLog || ColonyPerformanceLog.Enabled) && *(float*)payload > 0)
                 {
@@ -924,7 +926,13 @@ namespace MixedAtmospheres.Oni
                         TemperatureK = BitConverter.Int32BitsToSingle(BinaryPrimitives.ReadInt32LittleEndian(data.Slice(12))),
                         Disease = germ, DiseaseCount = germ != 0 ? germs : 0 });
                 }, rectAnywhere: true);
-                case MassConsumption: return Claim(length, 16, count, payload, (data, list) =>
+                case MassConsumption:
+                    // A withdrawal of a solid element is ONI's: the owner holds no solids. A Beeta mines
+                    // a uranium ore tile this way (BeeForageStates.MineTarget: the tile's own element,
+                    // radius 1); claimed here, the request never reached ONI, the Beeta's callback got
+                    // 0 kg and the tile kept its mass (until 1.13.8; scenario message-edges).
+                    if (length == 16 && SolidWithdrawal(count, payload)) return false;
+                    return Claim(length, 16, count, payload, (data, list) =>
                 {
                     var cell = BinaryPrimitives.ReadInt32LittleEndian(data);
                     list.Add(new OniNativeColony.Transfer { PublicCell = (uint)cell, NativeIndex = BinaryPrimitives.ReadUInt16LittleEndian(data.Slice(12)),
@@ -1077,6 +1085,18 @@ namespace MixedAtmospheres.Oni
         {
             if (buffer.Length < list.Count) buffer = new T[Math.Max(list.Count, buffer.Length * 2)];
             list.CopyTo(buffer); return buffer;
+        }
+        // Whether a MassConsumption batch asks for a solid element (records of 16 bytes, the element index at 12).
+        private static bool SolidWithdrawal(int count, byte* payload)
+        {
+            var solid = 0;
+            for (var k = 0; k < count; ++k)
+            {
+                var index = *(ushort*)(payload + k * 16 + 12);
+                if (index < ElementLoader.elements.Count && ElementLoader.elements[index].IsSolid) ++solid;
+            }
+            if (solid != 0 && solid != count) throw new NotSupportedException("A withdrawal batch asks for solid and fluid elements.");
+            return solid != 0;
         }
         private delegate void TransferDecoder(ReadOnlySpan<byte> data, List<OniNativeColony.Transfer> list);
         private static bool Claim(int length, int expected, int count, byte* payload, TransferDecoder decode, bool rectAnywhere)

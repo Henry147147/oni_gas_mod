@@ -110,6 +110,17 @@ namespace MixedAtmospheres.Oni
                     case "bottle-emptier": BottleEmptier(frame); break;
                     case "gas-generator": GasGenerator(frame); break;
                     case "building-emitter": BuildingEmitter(frame); break;
+                    case "message-edges": MessageEdges(frame); break;
+                    case "germ-cleaner": GermCleaner(frame); break;
+                    case "every-rocket-building": EveryRocketBuilding(frame); break;
+                    case "every-living-1": EveryLiving(frame, 1, 3); break;
+                    case "every-living-2": EveryLiving(frame, 2, 3); break;
+                    case "every-living-3": EveryLiving(frame, 3, 3); break;
+                    case "every-building": EveryBuilding(frame, 1, 1); break;
+                    case "every-building-1": EveryBuilding(frame, 1, 4); break;
+                    case "every-building-2": EveryBuilding(frame, 2, 4); break;
+                    case "every-building-3": EveryBuilding(frame, 3, 4); break;
+                    case "every-building-4": EveryBuilding(frame, 4, 4); break;
                     case "germs": Germs(frame); break;
                     case "world-germs": WorldGerms(frame); break;
                     case "germ-oracle": GermOracle(frame); break;

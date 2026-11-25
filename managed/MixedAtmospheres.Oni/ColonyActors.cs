@@ -239,6 +239,47 @@ namespace MixedAtmospheres.Oni
                 ElementConsumer.Configuration.AllLiquid => OniNativeColony.ExtractLiquid,
                 _ => OniNativeColony.Extract
             };
+        // Harness check (docs/colony-owner.md#element-consumers-and-emitters): every consumer and emitter
+        // component of the game that holds a simulation handle is run by the owner, as what it is. ONI's
+        // native simulation keeps consumers and emitters in separate registries, so a loaded colony's
+        // native handles are told apart by kind as well as by number.
+        internal sealed class CensusReport
+        {
+            public int GameConsumers, GameEmitters, GameBuildingEmitters, OwnedConsumers, OwnedEmitters, Native, Unowned, WrongKind, WrongComponent, SharedHandles;
+            public List<string> Problems = new List<string>();
+            // The lowest and highest handle of each kind (0x7e...... are the owner's own; others came from ONI at load).
+            public string ConsumerHandles = "", EmitterHandles = "";
+        }
+        private static readonly System.Reflection.FieldInfo ComponentHandle = HarmonyLib.AccessTools.Field(typeof(SimComponent), "simHandle");
+        private static readonly System.Reflection.FieldInfo BuildingHandle = HarmonyLib.AccessTools.Field(typeof(BuildingElementEmitter), "simHandle");
+        internal static CensusReport GameCensus()
+        {
+            var report = new CensusReport { OwnedConsumers = Consumers, OwnedEmitters = Emitters, Native = Native };
+            var seen = new Dictionary<int, string>();
+            var range = new[] { (low: int.MaxValue, high: int.MinValue), (low: int.MaxValue, high: int.MinValue) };
+            void One(UnityEngine.Component component, int handle, bool emitter)
+            {
+                if (!Sim.IsValidHandle(handle)) return;
+                var kind = emitter ? 1 : 0; range[kind] = (Math.Min(range[kind].low, handle), Math.Max(range[kind].high, handle));
+                var name = component.GetType().Name + " of " + component.gameObject.name + $" (handle 0x{handle:x8})";
+                if (seen.TryGetValue(handle, out var other)) { ++report.SharedHandles; if (report.Problems.Count < 24) report.Problems.Add($"shared handle: {name} and {other}"); }
+                else seen[handle] = name;
+                if (!owned.TryGetValue(handle, out var actor))
+                {
+                    if (native.ContainsKey(handle)) return; // not yet taken
+                    ++report.Unowned; if (report.Problems.Count < 24) report.Problems.Add("not run by the owner: " + name); return;
+                }
+                if (actor.Emitter != emitter) { ++report.WrongKind; if (report.Problems.Count < 24) report.Problems.Add($"run as {(actor.Emitter ? "an emitter" : "a consumer")}: {name}"); }
+                else if (actor.Component != null && component is SimComponent && !ReferenceEquals(actor.Component, component))
+                { ++report.WrongComponent; if (report.Problems.Count < 24) report.Problems.Add($"run for {actor.Component.GetType().Name} of {(actor.Component != null ? actor.Component.gameObject.name : "a destroyed object")}: {name}"); }
+            }
+            foreach (var c in UnityEngine.Object.FindObjectsByType<ElementConsumer>(UnityEngine.FindObjectsInactive.Exclude, UnityEngine.FindObjectsSortMode.None)) { ++report.GameConsumers; One(c, (int)ComponentHandle.GetValue(c), false); }
+            foreach (var e in UnityEngine.Object.FindObjectsByType<ElementEmitter>(UnityEngine.FindObjectsInactive.Exclude, UnityEngine.FindObjectsSortMode.None)) { ++report.GameEmitters; One(e, (int)ComponentHandle.GetValue(e), true); }
+            foreach (var b in UnityEngine.Object.FindObjectsByType<BuildingElementEmitter>(UnityEngine.FindObjectsInactive.Exclude, UnityEngine.FindObjectsSortMode.None)) { ++report.GameBuildingEmitters; One(b, (int)BuildingHandle.GetValue(b), true); }
+            string Span((int low, int high) r) => r.low > r.high ? "none" : $"0x{r.low:x8}..0x{r.high:x8}";
+            report.ConsumerHandles = Span(range[0]); report.EmitterHandles = Span(range[1]);
+            return report;
+        }
         private static void Own(int handle, Actor actor) { owned[handle] = actor; ordered = null; emitterTable = null; if (actor.Emitter) ++Emitters; else ++Consumers; }
         // ONI finds an emitter's record in the emitted-mass table by its
         // handle's low 24 bits (Sim.GetHandleIndex). An emitter the owner took

@@ -144,10 +144,15 @@ Workshop at 15:21 UTC with `tools/workshop.py`
 | Load matrix (the three game builds, Linux and Windows under Proton) | 6 of 6 |
 | Patch tier | 6 of 6 |
 
-After the upload, on the same revision: the other thirteen saves on the
-Windows build, and the release-tier steps that load or save a colony, with
-the new `linux-resume-refused`. Their results are recorded here once they
-have run.
+After the upload, on the same revision:
+
+| Step | Result |
+| --- | --- |
+| The other thirteen saves with the seven other mods, Windows game 764025 under Proton, release folder | 13 of 13 load, run 300 ticks and save without an error. The runner's own verdict is a pass for the eight run after its bound became 1e-8 and `failed-colony-owner-evidence` for the five before ([why](#found-while-testing-the-ledger-figure-of-a-long-colony)) |
+| The release-tier steps that load or save a colony, with the new `linux-resume-refused` | not run on this revision: the main checkout moved on while the Windows loads ran, and the suite runs only from the accepted revision. They run on [1.13.9](playtest-1.13.9.md), which followed the same day |
+
+So each of the fifteen saves has loaded with the seven mods on the Linux and
+on the Windows build of the game.
 
 ### The fifteen saves
 

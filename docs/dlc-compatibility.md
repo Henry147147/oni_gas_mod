@@ -517,7 +517,9 @@ of every plant (the toe plant dies above 283 K and the cylindrica below 288 K, s
 the scenario keeps the toe plant in a 265 K chamber of its own). The Beeta hive,
 the divergent beetle and worm eat and make solids only (uranium ore, sulfur,
 sucrose, mud); the hive's radiation is `spaced-out-radiation`'s system, and the
-Beeta's mining of uranium ore is a solid cell edit with no fluid. The wild
+Beeta's mining of uranium ore is a solid cell edit with no fluid, which the
+owner has passed on to ONI only since 1.13.9
+([until then the tile kept its ore](colony-owner.md#element-consumers-and-emitters)). The wild
 Staterpillar's connector exists only while it sleeps at night (the idle
 `ConduitSleepMonitor` destroys it otherwise), so the scenario spawns it with the
 creature's own methods once the creature's monitors have started.

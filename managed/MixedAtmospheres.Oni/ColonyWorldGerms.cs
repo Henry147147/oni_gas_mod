@@ -62,7 +62,24 @@ namespace MixedAtmospheres.Oni
         internal static string ConfigureFailure { get; private set; } = "";
         internal static long RoutedEdits { get; private set; }
 
-        internal static void Reset() { RoutedEdits = 0; }
+        internal static void Reset() { RoutedEdits = 0; ownerEvolves = -1; }
+        // Whether the owner evolves the world's germs itself (mode 1). A legacy colony (mode 0) projects its
+        // shown germ into ONI's own cells, where ONI's germ emitters act on it and the owner takes the change over.
+        private static int ownerEvolves = -1;
+        internal static bool OwnerEvolves
+        {
+            get
+            {
+                if (!Supported || !ColonyOwner.Active) return false;
+                if (ownerEvolves < 0)
+                {
+                    var summary = Summary.Empty;
+                    OniNativeColony.Check(Biology(ref summary, null, 0, out _));
+                    ownerEvolves = summary.Mode == 1 ? 1 : 0;
+                }
+                return ownerEvolves == 1;
+            }
+        }
 
         // The game's disease table, as its native simulation receives it: per
         // disease its strength and temperature rules, per element its growth.
@@ -143,6 +160,14 @@ namespace MixedAtmospheres.Oni
                 *(int*)(record + 8) = 0;
             }
             if (edits == null) return;
+            OniNativeColony.Check(QueueGerms(edits.ToArray(), (uint)edits.Count));
+            RoutedEdits += edits.Count;
+        }
+
+        // Germ edits of the owner's own (ColonyGermCleaners).
+        internal static void Queue(List<GermEdit> edits)
+        {
+            if (edits.Count == 0 || !Supported) return;
             OniNativeColony.Check(QueueGerms(edits.ToArray(), (uint)edits.Count));
             RoutedEdits += edits.Count;
         }

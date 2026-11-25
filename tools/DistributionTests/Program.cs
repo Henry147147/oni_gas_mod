@@ -70,14 +70,14 @@ static class Program
     private static void GameRefusals()
     {
         const string Updates = "Mixed Atmospheres update";
-        var newer = ModAdmission.UnsupportedBuild("1.13.8", 770001, 764025);
-        Check(newer.Notice.Contains("Mixed Atmospheres 1.13.8 does not support this version of Oxygen Not Included") && newer.Notice.Contains("the game is build 770001") &&
+        var newer = ModAdmission.UnsupportedBuild("1.13.9", 770001, 764025);
+        Check(newer.Notice.Contains("Mixed Atmospheres 1.13.9 does not support this version of Oxygen Not Included") && newer.Notice.Contains("the game is build 770001") &&
             newer.Notice.Contains("for build 764025") && newer.Notice.Contains(Updates) && newer.Notice.Contains("has not changed the game"), newer.Notice);
         Check(newer.LoadRefusal.Contains("(build 770001)") && newer.LoadRefusal.Contains("Install a Mixed Atmospheres update") &&
             newer.LoadRefusal.Contains("The save has not been changed."), newer.LoadRefusal);
-        var older = ModAdmission.UnsupportedBuild("1.13.8", 700000, 744825);
+        var older = ModAdmission.UnsupportedBuild("1.13.9", 700000, 744825);
         Check(older.Notice.Contains("Update Oxygen Not Included") && !older.Notice.Contains(Updates) && older.LoadRefusal.Contains("Update Oxygen Not Included, then load"), older.Notice);
-        Check(ModAdmission.UnsupportedBuild("1.13.8", 0, 764025).Notice.Contains("an unknown build"), "unreadable build number");
+        Check(ModAdmission.UnsupportedBuild("1.13.9", 0, 764025).Notice.Contains("an unknown build"), "unreadable build number");
 
         KeyValuePair<string, string[]> Part(string method, params string[] mods) => new KeyValuePair<string, string[]>(method, mods);
         var one = ModAdmission.OtherMods(764025, new[] { Part("SaveLoader.Save", "Fast Track") });

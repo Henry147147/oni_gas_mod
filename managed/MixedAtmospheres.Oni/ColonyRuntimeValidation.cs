@@ -75,6 +75,7 @@ namespace MixedAtmospheres.Oni
         private static bool done;
         private static int liveFrameBaseline = -1;
         private static ulong observerTimestepBaseline, observerUpdateBaseline;
+        private static ColonyActors.CensusReport? actorCensus;
         private static string ReportPath => Path.Combine(OutputDirectory, "colony-validation.json");
         internal static string OutputDirectory => Path.Combine(Mod.DirectoryPath, "game-contract-local", "colony-validation");
         internal static ColonyValidationConfiguration? Settings => configuration;
@@ -529,6 +530,7 @@ namespace MixedAtmospheres.Oni
                 LongestBlockMilliseconds = ColonyOwner.LongestBlockMilliseconds.ToDictionary(item => item.Key.ToString(), item => item.Value),
                 Census = ColonyOwner.Census.OrderByDescending(item => item.Value).ToDictionary(item => item.Key.ToString(), item => item.Value),
                 Scenario = ColonyScenarios.Current, Scenarios = ColonyScenarios.Results, OwnerMenuReload = OwnerReloadReport(), RestoredOwner = ColonyOwnerPersistence.RestoredReport(), SaveBarrier = ColonySaveBarrier.Report(), SavedParticles = ColonySavedParticles.Report(), PipeSave = ColonyPipeSave.Report(), PipePorts = PipePortReport(status.CompletedFrames), SaveControl = ColonySaveControls.Report(), Continuation = ColonyContinuationProbe.Report(), CallbackRequests = ColonyCallbackRequests.Report(),
+                ActorCensus = actorCensus,
                 Consumers = ColonyActors.Consumers, Emitters = ColonyActors.Emitters, NativeActors = ColonyActors.Native, ActorTransfers = ColonyActors.Queued, ConsumerEvents = ColonyActors.Delivered,
                 Error = status.Error
             };
@@ -573,7 +575,13 @@ namespace MixedAtmospheres.Oni
                 if (Time.frameCount % 60 == 0) WriteReport();
                 return;
             }
-            if (!reported) WriteOwnerReport();
+            // Once, at the end of the run: the game's consumer and emitter components against the owner's actors.
+            actorCensus = ColonyActors.GameCensus();
+            WriteOwnerReport();
+            if (actorCensus.Problems.Count != 0)
+                throw new InvalidOperationException($"The owner does not run the game's consumers and emitters as registered ({actorCensus.Unowned} not run, " +
+                    $"{actorCensus.WrongKind} as the other kind, {actorCensus.WrongComponent} for another component, {actorCensus.SharedHandles} shared handles): " +
+                    string.Join("; ", actorCensus.Problems.Take(6)));
             if (loading && ModSettingsRuntime.ValidationPreset.Length != 0)
                 ReportJson.WriteAtomic(Path.Combine(OutputDirectory, "container-capacities.json"), ColonyScenarios.RestoredContainerCapacities());
             if (configuration.SaveOnComplete && Report.ColonySavePath.Length == 0) { SaveColony(); Report.ColonySaveFrame = ColonyOwnerPersistence.LastSavedFrame; }
