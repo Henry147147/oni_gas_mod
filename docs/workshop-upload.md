@@ -53,6 +53,7 @@ Uploads so far:
 | 2026-11-21 23:10 | 1.12.2 | `0da7afd` | `status` on 2026-11-22: 39 files as the manifest pins them |
 | 2026-11-22 20:29 | 1.12.2.3 | `9c7bda6` | `status` on 2026-11-23: every file as the manifest pins it |
 | 2026-11-24 02:53 | 1.13.3 | `6a116e5` | `status` on 2026-11-24: every file as the manifest pins it |
+| 2026-11-24 23:01 | 1.13.5 | `993c3c3` | `status` on 2026-11-25: every file as the manifest pins it; uploaded by the user while its release chain was running |
 
 The first four were uploaded by the user with Klei's uploader; this project's
 record does not say how 1.12.2.3 and 1.13.3 were uploaded (1.13.3 went up

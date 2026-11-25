@@ -65,10 +65,13 @@ few that your task touches, starting here.
   ([why a patch reads as a change](docs/game-update-resilience.md#other-mods)).
   Each cause now has its own notice; the conflict notice names the mods and
   where to report. Whether the mod should run beside such mods is an open
-  user decision. It inherits the hold of 1.13.5.
-  [1.13.5](docs/playtest-1.13.5.md) is the candidate of the frame-rate
-  round, held back by the user (2026-11-24): **no release or upload until
-  every error found in that round is fixed.** It adds to 1.13.4 the user's
+  user decision. The user asked for it to be built at once and for the
+  release steps 1.13.5 had not yet run to be run on it (2026-11-25); its
+  upload waits for the user's go-ahead.
+  [1.13.5](docs/playtest-1.13.5.md) is the version of the frame-rate round;
+  the user uploaded it to the Workshop on 2026-11-24, while its release
+  chain was running ([what had run](docs/playtest-1.13.5.md#staged-package)).
+  It adds to 1.13.4 the user's
   decisions of that day (a germ culture's count is one double; the gas map
   keeps a cell's colour inside a band of about 5 %), a cheaper publication
   of each tick (the mod's work per tick on the game thread of the November
@@ -118,8 +121,8 @@ few that your task touches, starting here.
   [the 0.1.1 playtest review](docs/playtest-0.1.1-review.md).
   The `docs/handoff-codex-*.md` files are historical; continue on `main`.
 - [docs/workshop-upload.md](docs/workshop-upload.md): the Steam Workshop item,
-  what it serves (`python3 tools/workshop.py status`: 1.13.3, `6a116e5`, on
-  2026-11-24) and the upload procedure. The tool only reads unless it is given
+  what it serves (`python3 tools/workshop.py status`: 1.13.5, `993c3c3`, on
+  2026-11-25) and the upload procedure. The tool only reads unless it is given
   `--execute` with the user's go-ahead for that version.
 - [docs/playtest-plan.md](docs/playtest-plan.md): the original first-playtest
   plan (the full base game on one asteroid, playable on Linux).

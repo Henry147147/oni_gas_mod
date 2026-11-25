@@ -2,8 +2,10 @@
 
 1.13.6 is [1.13.5](playtest-1.13.5.md) with clearer notices for the cases in
 which the mod stays off at the main menu (user request, 2026-11-25). A
-running colony, the solver and the save format are those of 1.13.5, and it
-inherits that version's hold: nothing is uploaded until the user says so.
+running colony, the solver and the save format are those of 1.13.5. The
+user uploaded 1.13.5 on 2026-11-24 and asked on 2026-11-25 for 1.13.6 to be
+built at once and for the release steps 1.13.5 had not yet run to be run on
+it. Its upload waits for the user's go-ahead.
 
 ## The report
 
@@ -61,9 +63,8 @@ for every failed check spoke of an unsupported game version.
 | The mod compiles against 744825, 763796 and 764025 (Linux) and the Windows game | yes |
 | In the game (Linux, 764025, menu): the stand-in mod listed before the package | the mod stays off and patches nothing; Player.log names `CustomGameSettings.SetQualitySetting`, `LoadScreen.DoLoad` and `SaveLoader.Save`, each with "Other Mod Stand-in" and its Harmony IDs; the dialog shows the conflict notice with that title and "3 methods". The dialog was read from a screenshot taken before its text was shortened by one sentence |
 
-Not run yet: the package for all three game builds, the load matrix and the
-patch tier. They need the main checkout, which the 1.13.5 release chain
-holds until it ends.
+The package's own builds and acceptance run are recorded under
+[Staged package](#staged-package).
 
 ## How common the conflict is
 
@@ -77,3 +78,13 @@ turns Mixed Atmospheres off when the game loads it first, and none does when
 it loads later. The notice now says so plainly; whether the mod should
 instead run beside them is the open decision in
 [the resilience notes](game-update-resilience.md#other-mods).
+
+## Staged package
+
+The builds, the package for the three game builds, the Workshop dry run, the
+load matrix and the patch tier run on this version's revision. Of the
+release tier, it runs the 64 steps that
+[1.13.5's chain](playtest-1.13.5.md#staged-package) had not completed
+(`linux-Oceania` onwards); the 18 that passed on `993c3c3` are not repeated,
+since the two versions differ only in what the mod does before it starts.
+Results are recorded here once they have run.

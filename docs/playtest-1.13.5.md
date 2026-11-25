@@ -207,6 +207,17 @@ The package's own acceptance run is recorded under
 
 ## Staged package
 
-Not released, and not to be uploaded: the user holds this round back until
-every error found in it is fixed (2026-11-24). The package's builds and
-acceptance run are recorded here once they have run.
+The user uploaded this package (`993c3c3`) to the Workshop on 2026-11-24 at
+23:01 UTC, nine minutes after it was staged; `tools/workshop.py status` on
+2026-11-25 finds every file as the manifest pins it. Its release chain was
+then still running and was stopped on 2026-11-25 at 00:50 UTC at the user's
+request, so that [1.13.6](playtest-1.13.6.md) could be built and the
+remaining steps run on that version.
+
+| Step, on `993c3c3` | Result |
+| --- | --- |
+| Linux (Ubuntu 22.04 compatibility), Linux and Windows builds; package; archives | passed |
+| Workshop dry run | passed |
+| Load matrix: the frozen older save on 744825, 763796 and 764025, Linux and Proton | 6 of 6 |
+| Patch tier | 6 of 6 |
+| Release tier, 82 steps | the first 18 passed (both builds, `linux-b1` to `linux-b15`, `linux-SandstoneDefault`); `linux-Oceania` was running when the chain was stopped; the other 63 never ran on this version |
