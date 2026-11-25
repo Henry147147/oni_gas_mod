@@ -22,7 +22,11 @@ public static class OtherMod
         first.Patch(Method(typeof(SaveLoader), "Save", typeof(string), typeof(bool), typeof(bool)), prefix: prefix);
         second.Patch(Method(typeof(SaveLoader), "Save", typeof(string), typeof(bool), typeof(bool)), postfix: postfix);
         first.Patch(Method(typeof(CustomGameSettings), "SetQualitySetting", typeof(Klei.CustomSettings.SettingConfig), typeof(string)), prefix: prefix);
-        first.Patch(Method(typeof(LoadScreen), "DoLoad", typeof(string)), prefix: prefix);
+        // MA_OTHER_MOD_LEAVES_LOAD=1 leaves the load entry alone: Mixed Atmospheres is still off, and its
+        // guard on LoadScreen.DoLoad and MainMenu.ResumeGame, which it installs only on unpatched
+        // entries, can be tested (tools/oni_headless.py --resume-save).
+        if (Environment.GetEnvironmentVariable("MA_OTHER_MOD_LEAVES_LOAD") != "1")
+            first.Patch(Method(typeof(LoadScreen), "DoLoad", typeof(string)), prefix: prefix);
     }
 }
 

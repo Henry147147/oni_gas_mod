@@ -432,11 +432,15 @@ def playtest(args, state: Path, session: dict) -> int:
         elif args.mode in OWNER_MODES:
             base_game_preferences(profile)
             result["disabled_dlc_preferences"] = list(BASE_GAME_DISABLED_DLC)
-        common.write_json(profile / "mods/mods.json", {"version": 1, "mods": [{
+        mods = [{
             "label": {"distribution_platform": "Dev", "id": MOD_ID, "title": "Mixed Atmospheres - Integration Probe",
                       "version": common.mono_label_version(MOD_ID)}, "status": 1, "enabled": True,
             "enabledForDlc": ["", *common.oni_dlc.DLC_IDS], "crash_count": 0, "reinstall_path": None,
-            "staticID": MOD_ID}]})
+            "staticID": MOD_ID}]
+        # Other mods around the package, as on the Linux runner (a player's own mod list and its order).
+        common.add_extra_mods(mods, profile / "mods/Dev", getattr(args, "extra_mod", None), getattr(args, "extra_mod_first", None))
+        result["mods"] = [entry["label"]["id"] for entry in mods]
+        common.write_json(profile / "mods/mods.json", {"version": 1, "mods": mods})
         load_fixture = None
         if args.load_save:
             source_hash = common.digest(args.load_save)
@@ -744,6 +748,10 @@ def main() -> int:
     parser.add_argument("--settings-preset",type=Path,help="Explicit non-default colony settings control; staged preset JSON file")
     parser.add_argument("--settings-open",choices=("mods","0","1","2","3"),help="Open the actual settings UI through its existing validation hook")
     parser.add_argument("--load-save", type=Path)
+    parser.add_argument("--extra-mod", type=Path, action="append", metavar="FOLDER",
+                        help="Also install and enable this built mod folder after the package; repeatable")
+    parser.add_argument("--extra-mod-first", type=Path, action="append", metavar="FOLDER",
+                        help="Like --extra-mod, but the game loads this mod before the package; repeatable")
     parser.add_argument("--resave-before-resume", action="store_true")
     parser.add_argument("--reload-in-process", action="store_true")
     parser.add_argument("--verify-natural-autosave",action="store_true",help="Wait for natural day rollover; native-domain and 3100..5000 frames")

@@ -317,6 +317,20 @@ had patched those methods.
   difference must be attributed to it and the notice must count three
   methods. In the game, `tools/oni_headless.py run --mode menu
   --extra-mod-first FOLDER` loads the built stand-in ahead of the package.
+- **The load guard.** While the mod is off it patches only the two ways a
+  colony loads from the menu (`LoadScreen.DoLoad`, `MainMenu.ResumeGame`),
+  and only when the contract verifies both as unpatched by anyone else: a
+  Mixed Atmospheres colony is then refused before the game loads it, with
+  the notice for the cause. Without the guard the game hands the colony to
+  its own simulation, which fails on it ("SimDLL found bad data" and the
+  crash screen); the save file is not changed either way. The guard reads
+  the save file to recognise the colony, and from 1.10.1 to 1.13.7 that
+  reader did not read saves of game builds 763796 and 764025
+  ([1.13.8](playtest-1.13.8.md#the-save-file-reader)). Its test: the
+  stand-in with `MA_OTHER_MOD_LEAVES_LOAD=1` (it then leaves
+  `LoadScreen.DoLoad` alone) and `tools/oni_headless.py run --mode menu
+  --resume-save SAVE`, which makes the main menu resume that save; the
+  release tier runs it as `linux-resume-refused`.
 
 ## Refusals
 

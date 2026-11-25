@@ -297,6 +297,11 @@ in the order they build on each other, a control with the switch its notes
 ask for). Until then no tier ran those 61 scenarios and five had stopped
 passing unnoticed ([what was found](playtest-1.13.5.md#test-harness-repairs));
 60 run now, and `UNTIERED_SCENARIOS` says why the last one does not.
+Since 1.13.8 the release tier also runs `linux-resume-refused`: with the mod
+kept off by a stand-in for another mod, the main menu resumes the autosave
+that `linux-one-cycle` wrote on the running game build, and the mod's guard
+must refuse it before the game loads it
+([why](game-update-resilience.md#other-mods)).
 `--scenario` finds them as well. A new scenario belongs in one of the lists:
 a test compares them with the driver's scenario list. Sustained player speed still requires
 a live colony measurement. Historical-build qualification runs separately.

@@ -7,6 +7,38 @@ internal static partial class Program
         =>ColonySaveReadback.Verify(file??f.File,bodyBytes??f.Body.Length,bodyHash??Sha(f.Body),sim??f.Options.Sim,colony??Guid.Parse(LayoutFixture.NativeD),f.Header.AsSpan(16));
     private static void RegisterReadbackChecks()
     {
+        // What the checks before a load read (ColonyOwnerPersistence.IsMixtureSave, LoadRefusal). Game builds
+        // 763796 and 764025 write object-save 7.39; until 1.13.8 the reader returned nothing for their saves.
+        Add("the sim section is read from object-save 7.38 and later minor versions only",()=>
+        {
+            foreach(var minor in new[]{38,39,40})
+            {
+                var f=new LayoutFixture(o=>o.ObjectMinor=minor);var sim=ColonySaveReadback.SimSection(f.File);
+                Check(sim!=null && sim.AsSpan().SequenceEqual(f.Options.Sim));
+                Check(OwnedReservoirLoadHeaderV1.InspectLayoutHeader(f.Header).SaveMinorVersion==minor);
+                var plain=new LayoutFixture(o=>{o.ObjectMinor=minor;o.Compression=0;});
+                Check(ColonySaveReadback.SimSection(plain.Header.Concat(plain.Directory).Concat(plain.Body).ToArray())!.AsSpan().SequenceEqual(plain.Options.Sim));
+            }
+            Check(ColonySaveReadback.SimSection(new LayoutFixture(o=>o.ObjectMinor=37).File)==null);
+            Check(ColonySaveReadback.SimSection(new LayoutFixture(o=>o.Json=LayoutFixture.Json(false,false,39).Replace(":7,",":8,",StringComparison.Ordinal)).File)==null);
+            var later=new LayoutFixture(o=>o.ObjectMinor=39);int at=later.BodyRanges["ksav"].Offset;
+            Check(ColonySaveReadback.SimSection(later.Rebody(Put32(later.Body,at+8,37)))==null);
+            Check(ColonySaveReadback.SimSection(later.Rebody(Put32(later.Body,at+4,8)))==null);
+            Check(ColonySaveReadback.SimSection(later.Rebody(PutByte(later.Body,at,0)))==null);
+            // The complete layout inspection still walks the objects of 7.38 only.
+            Reject(later.File,SavedInspectionFailureKind.Unsupported,path:"KSAV");
+        });
+        Add("a Mixed Atmospheres envelope is returned with or without ONI's length prefix",()=>
+        {
+            var envelope=Encoding.ASCII.GetBytes("MACOLONY").Concat(new byte[]{1,2,3,4,5}).ToArray();
+            foreach(var minor in new[]{38,39})
+            {
+                Check(ColonySaveReadback.SimSection(new LayoutFixture(o=>{o.ObjectMinor=minor;o.Sim=envelope;}).File)!.AsSpan().SequenceEqual(envelope));
+                var prefixed=BitConverter.GetBytes(envelope.Length).Concat(envelope).ToArray();
+                Check(ColonySaveReadback.SimSection(new LayoutFixture(o=>{o.ObjectMinor=minor;o.Sim=prefixed;}).File)!.AsSpan().SequenceEqual(envelope));
+            }
+            Check(ColonySaveReadback.SimSection(new byte[]{1,2,3})==null && ColonySaveReadback.SimSection(Array.Empty<byte>())==null);
+        });
         Add("saved write receipt associates exact complete body and sim with one colony",()=>
         {
             var f=new LayoutFixture();var receipt=Readback(f);

@@ -175,6 +175,9 @@ namespace MixedAtmospheres.Oni
             { return Invalid(bytes, path, size, parser?.ReservedObserved ?? false, error.Message); }
         }
 
+        // The game's object-save versions the inspectors read: 7.38 and later minor versions.
+        internal const int ObjectSaveMajor = 7, FirstObjectSaveMinor = 38;
+
         // Pure bounded header facts. This file remains independently linkable
         // by the existing rejection-only header host and contract project.
         internal static OwnedReservoirLayoutHeaderFacts InspectLayoutHeader(ReadOnlySpan<byte> completeHeaderBytes, bool allowUncompressed = false)
@@ -186,8 +189,13 @@ namespace MixedAtmospheres.Oni
             uint build = BinaryPrimitives.ReadUInt32LittleEndian(bytes);
             uint version = BinaryPrimitives.ReadUInt32LittleEndian(bytes.AsSpan(8));
             int compression = BinaryPrimitives.ReadInt32LittleEndian(bytes.AsSpan(12));
-            // Any build from the first supported one: the v1 layout and the
-            // 7.38 object-save version below are what the inspector depends on.
+            // Any build from the first supported one. The inspector depends
+            // on the v1 layout and on the object-save format from 7.38 on:
+            // game builds 763796 and 764025 write 7.39 with the same body
+            // prefix. A later version is read too, because every structure
+            // the inspectors walk is checked against the save's own
+            // templates; the number alone refused every current save until
+            // 1.13.8 (docs/playtest-1.13.8.md).
             if (build < 744825 || version != 1 || (compression != 1 && !(allowUncompressed && compression == 0)))
                 throw new NotSupportedException("Unsupported build/v1 body layout or compression.");
             try
@@ -197,8 +205,8 @@ namespace MixedAtmospheres.Oni
                 var root = new JsonParser(StrictUtf8.GetString(bytes, 16, bytes.Length - 16)).Parse();
                 if (root.Kind != JsonKind.Object) throw new InvalidDataException("Header JSON must be an object.");
                 long major = Integer(root, "saveMajorVersion"), minor = Integer(root, "saveMinorVersion");
-                if (major != 7 || minor != 38)
-                    throw new NotSupportedException("Only native object-save version 7.38 is supported.");
+                if (major != ObjectSaveMajor || minor < FirstObjectSaveMinor)
+                    throw new NotSupportedException("Only native object-save versions from 7.38 are supported.");
                 string colonyText = Text(root, "colonyGuid");
                 if (!Guid.TryParseExact(colonyText, "D", out var colony) || colony == Guid.Empty || colony.ToString("D") != colonyText)
                     throw new InvalidDataException("Expected a canonical nonempty native colony Guid.");

@@ -41,6 +41,8 @@ internal sealed class LayoutFixtureOptions
     internal string? Json;
     internal uint Build = 744825, HeaderVersion = 1;
     internal int Compression = 1;
+    // The object-save minor version, in the header JSON and in the KSAV header (7.38; 7.39 from game build 763796).
+    internal int ObjectMinor = 38;
     internal byte[] Sim = { 0, 75, 83, 65, 86, 77, 65, 67, 79, 76, 79, 78, 89, 255, 17, 0, 9 };
     internal byte[] Tail = { 75, 83, 65, 86, 0, 255, 120, 1 };
 }
@@ -65,7 +67,7 @@ internal sealed class LayoutFixture
     internal LayoutFixture(Action<LayoutFixtureOptions>? configure = null)
     {
         Options = new LayoutFixtureOptions(); configure?.Invoke(Options);
-        string json = Options.Json ?? Json(Options.Owned, Options.ReverseJson);
+        string json = Options.Json ?? Json(Options.Owned, Options.ReverseJson, Options.ObjectMinor);
         byte[] text = new UTF8Encoding(false, true).GetBytes(json); JsonBytes = text.Length;
         Header = Wire.Make(w => { w.U32(Options.Build); w.I32(text.Length); w.U32(Options.HeaderVersion); w.I32(Options.Compression); w.Raw(text); }).Bytes;
         var directory = DirectoryBytes(); Directory = directory.Bytes; DirectoryRanges = directory.Ranges;
@@ -79,9 +81,9 @@ internal sealed class LayoutFixture
 
     internal byte[] Rebody(byte[] body) => Header.Concat(Directory).Concat(StoredZlib(body, Options.StoredBlockBytes)).ToArray();
     internal byte[] Redirectory(byte[] directory) => Header.Concat(directory).Concat(Zlib).ToArray();
-    internal static string Json(bool owned, bool reverse = false)
+    internal static string Json(bool owned, bool reverse = false, int minor = 38)
     {
-        var fields = new List<string> { "\"baseName\":\"synthetic 量💨 KSAV\"", "\"colonyGuid\":\"" + NativeD + "\"", "\"saveMajorVersion\":7", "\"saveMinorVersion\":38" };
+        var fields = new List<string> { "\"baseName\":\"synthetic 量💨 KSAV\"", "\"colonyGuid\":\"" + NativeD + "\"", "\"saveMajorVersion\":7", "\"saveMinorVersion\":" + minor };
         if (owned) fields.Add("\"mixedAtmospheresOwnedReservoirs\":{" + string.Join(',', new[] {
             "\"formatVersion\":1", "\"scope\":\"two-gas-reservoirs-idle\"", "\"oniBuild\":744825", "\"nativeColonyId\":\""+NativeN+"\"", "\"ownerCount\":2",
             "\"checkpointFormatVersion\":1", "\"checkpointSha256\":\""+new string('a',64)+"\"", "\"envelopeFormatVersion\":1", "\"envelopeSha256\":\""+new string('b',64)+"\"",
@@ -195,7 +197,7 @@ internal sealed class LayoutFixture
     }
     private void WriteKsav(Wire w)
     {
-        w.Raw(new byte[] { 75, 83, 65, 86 }); w.I32(7); w.I32(38); w.I32(Options.Minimal ? 0 : 2);
+        w.Raw(new byte[] { 75, 83, 65, 86 }); w.I32(7); w.I32(Options.ObjectMinor); w.I32(Options.Minimal ? 0 : 2);
         if (Options.Minimal) return;
         var reservoir = Wire.Make(p => { p.Child("owner-a", Root(0, true)); p.Child("owner-b", Root(1, false)); });
         w.Text("GasReservoir"); w.I32(2); w.I32(reservoir.Bytes.Length); w.Child("reservoir-group", reservoir);

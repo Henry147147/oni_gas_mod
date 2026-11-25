@@ -53,6 +53,9 @@ EXPORT_DONE_MARKER = "[Mixed Atmospheres] Native contract captured without nativ
 EXPORT_FAILED_MARKERS = ("[Mixed Atmospheres] Native contract export failed:",
                          "[Mixed Atmospheres] Native contract diagnostics capture failed")
 MENU_EXPORT_WAIT_SECONDS = 120
+# What the mod logs when it keeps a colony save from loading, before the game leaves the menu
+# (ColonyLoadPrecheckPatch.Refuse; with the mod off, RefusedBuildLoadGuard).
+RESUME_REFUSED_MARKER = "[Mixed Atmospheres] Colony save refused before loading:"
 MENU_SETTLE_SECONDS = 5
 MOD_IDENTIFIERS = ("Mixed Atmospheres", "MixedAtmospheres")
 FAILURE_WORDS = re.compile(r"(?<![\w./\\-])(?:fail(?:ed|ure|ures|ing)?|errors?|[\w.]*exception)\b", re.IGNORECASE)
@@ -557,9 +560,12 @@ def add_extra_mods(mods: list[dict], dev: Path, after, first) -> None:
         mods.insert(position, stage_extra_mod(Path(extra).resolve(), dev, {entry["label"]["id"] for entry in mods}))
 
 
-def release_mode_error(manifest: dict, mode: str) -> str | None:
-    """A release writes reports only beside a validation request, which menu mode does not stage."""
-    if is_distribution_package(manifest) and mode == "menu":
+def release_mode_error(manifest: dict, mode: str, resume: bool = False) -> str | None:
+    """A release writes reports only beside a validation request, which menu mode does not stage.
+
+    A resumed save (--resume-save) is judged by the game's log alone, so a release folder may run it.
+    """
+    if is_distribution_package(manifest) and mode == "menu" and not resume:
         return "A release folder runs in colony modes: only their validation request makes it report beside the mod."
     return None
 
@@ -654,6 +660,26 @@ def mod_failure_lines(log: str, identifiers: tuple[str, ...] = (), expected: tup
     asked = [text for text in expected if text]
     return [found[index].strip()[:500] for index in sorted(found)
             if not any(text in lines[owner.get(index, index)] for text in asked)]
+
+
+def resume_preferences(save: Path) -> str:
+    """A KPlayerPrefs file whose only entry makes the main menu resume `save` by itself.
+
+    MainMenu.OnSpawn calls ResumeGame when the AutoResumeSaveFile key exists (the game sets it
+    before a restart that changes content); ResumeGame is one of the two load entries the mod guards.
+    """
+    return "strings:\n  AutoResumeSaveFile: " + json.dumps(str(save)) + "\nints: {}\nfloats: {}\n"
+
+
+def classify_resume(log: str, timed_out: bool = False) -> tuple[str, int]:
+    """--resume-save: the run passes when the mod refused the resumed save before the game loaded it."""
+    if RESUME_REFUSED_MARKER in log:
+        return "passed-resume-refused", 0
+    if steam_blocked(log):
+        return "blocked-steam-authentication", 3
+    if MAIN_MENU_MARKER not in log:
+        return "timeout" if timed_out else "failed-before-main-menu", 2
+    return "failed-resume-not-refused", 2
 
 
 def expected_refusals(args) -> tuple[str, ...]:
@@ -1072,6 +1098,10 @@ def playtest(args, state: Path, session: dict) -> int:
         oni_dlc.ids_for_mask(dlc_mask)
         if args.mode == "menu":
             raise ValueError("--dlc-mask requires a colony mode with runtime content verification")
+    resume_save = getattr(args, "resume_save", None)
+    resume_save = resume_save if isinstance(resume_save, (str, Path)) else None
+    if resume_save is not None and (args.mode != "menu" or not Path(resume_save).is_file()):
+        raise ValueError("--resume-save takes an existing colony save and requires menu mode.")
     private_display = getattr(args, "private_display", False) is True
     inspection_seconds = getattr(args, "inspection_seconds", 0)
     if type(inspection_seconds) is not int or not 0 <= inspection_seconds <= 300 or (inspection_seconds and (args.keep_open or args.mode == "menu")):
@@ -1087,7 +1117,7 @@ def playtest(args, state: Path, session: dict) -> int:
         raise ValueError("--gpu-display and --private-display are alternatives.")
     package = args.package.resolve()
     manifest = verify_package(package)
-    if release_mode_error(manifest, args.mode):
+    if release_mode_error(manifest, args.mode, resume_save is not None):
         raise ValueError(release_mode_error(manifest, args.mode))
     if args.mode in ("native-observer", "colony-owner", "colony-owner-load", "colony-owner-inactive", "colony-vanilla", "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
         raise ValueError("Native integration modes require a package built with --native-observer")
@@ -1141,6 +1171,13 @@ def playtest(args, state: Path, session: dict) -> int:
             raise ValueError("Source colony save changed while staging the private input")
     if args.mode != "menu":
         write_json(mod / "colony-validation.json", colony_configuration(args, name, load_fixture, inspection_seconds))
+    resume_fixture = None
+    if resume_save is not None:
+        resume_fixture = output / "resume-colony.sav"
+        shutil.copy2(resume_save, resume_fixture)
+        profile.mkdir(parents=True, exist_ok=True)
+        with (profile / "kplayerprefs.yaml").open("x", encoding="utf-8", newline="\n") as stream:
+            stream.write(resume_preferences(resume_fixture))
     thin = output / "game"
     thin.mkdir()
     for file in game.iterdir():
@@ -1202,9 +1239,10 @@ def playtest(args, state: Path, session: dict) -> int:
                 if args.mode == "menu" and MAIN_MENU_MARKER in log:
                     # The mod's contract export runs after the marker. Wait for its
                     # own completion/failure line (bounded), then let trailing
-                    # exception and stack lines reach Player.log.
+                    # exception and stack lines reach Player.log. A resumed save is
+                    # given the whole wait unless the mod refuses it sooner.
                     menu_seen = time.monotonic() if menu_seen is None else menu_seen
-                    if contract_export(log) or time.monotonic() - menu_seen >= MENU_EXPORT_WAIT_SECONDS:
+                    if (RESUME_REFUSED_MARKER in log if resume_fixture else contract_export(log)) or time.monotonic() - menu_seen >= MENU_EXPORT_WAIT_SECONDS:
                         time.sleep(MENU_SETTLE_SECONDS)
                         break
                 if watch is not None:
@@ -1246,6 +1284,8 @@ def playtest(args, state: Path, session: dict) -> int:
             player_exit = CHILDREN[record["pid"]].poll()
             status, code = classify(args.mode, log, probe, report, timed_out, player_exit, (mod_id,), diagnostic_stopped=stopped_for_limit,
                                     expected_refusals=expected_refusals(args))
+            if resume_fixture:
+                status, code = classify_resume(log, timed_out)
             final_owner_report = limit_report
             if stopped_for_limit or args.mode in ("colony-owner", "colony-owner-load"):
                 try: final_owner_report = read_json(colony_file.parent / "colony-owner.json")
@@ -1291,7 +1331,7 @@ def playtest(args, state: Path, session: dict) -> int:
                     reload_in_process=bool(getattr(args,"reload_in_process",False)))
                 if code == 0 and not domain_ok:
                     status, code = "failed-native-domain", 2
-            elif code == 0 and not observer_ok and not stopped_for_limit:
+            elif code == 0 and not observer_ok and not stopped_for_limit and not resume_fixture:
                 status, code = "failed-native-observer", 2
             telemetry = telemetry_summary(telemetry_file) if long_run else None
             telemetry_ok = long_run and long_run_telemetry_passed(telemetry, report)
@@ -1341,6 +1381,8 @@ def playtest(args, state: Path, session: dict) -> int:
                 "telemetry_stall_reason": watch.reason if watch is not None else None,
                 "development_telemetry": telemetry, "development_telemetry_passed": telemetry_ok,
                 "load_save_fixture": {"path": str(load_fixture), "sha256": digest(load_fixture)} if load_fixture else None,
+                "resume_save_fixture": {"path": str(resume_fixture), "sha256": digest(resume_fixture)} if resume_fixture else None,
+                "resume_refused": RESUME_REFUSED_MARKER in log if resume_fixture else None,
                 "game_hashes": {p: digest(game / p) for p in (
                     "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll",
                     # Plugins/ up to build 744825, Plugins/x86_64/ since 763796.
@@ -1415,6 +1457,10 @@ def main() -> int:
                       help="Also install and enable this built mod folder (mod.yaml, mod_info.yaml, DLLs) after the package; repeatable")
     play.add_argument("--extra-mod-first", type=Path, action="append", metavar="FOLDER",
                       help="Like --extra-mod, but the game loads this mod before the package; repeatable")
+    play.add_argument("--resume-save", type=Path, metavar="SAVE",
+                      help="menu mode only: the main menu resumes this colony save by itself (the game's AutoResumeSaveFile "
+                           "preference); the run passes when the mod refuses the save before the game loads it, e.g. while "
+                           "another mod keeps it off (--extra-mod-first)")
     play.add_argument("--expected-refusal", action="append", metavar="TEXT",
                       help="A control run only: a mod log line holding TEXT, and the stack of an exception whose header holds it, "
                            "is the refusal the scenario asks for and not a failure; repeatable")

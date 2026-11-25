@@ -1635,6 +1635,29 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(len(kept), 1)
         self.assertEqual(runner.classify("menu", refusal + other, self.probe, None, False, expected_refusals=asked), ("failed-mod-log-errors", 2))
 
+    def test_a_resumed_save_passes_only_when_the_mod_refused_it_before_loading(self):
+        menu = "[17:30:01.000] [1] [INFO] -- MAIN MENU -- \n"
+        refused = ("[17:30:02.000] [1] [WARNING] [Mixed Atmospheres] Colony save refused before loading: This colony uses Mixed "
+                   "Atmospheres, which is not active because other mods have changed game code.\n")
+        self.assertEqual(runner.classify_resume(menu + refused), ("passed-resume-refused", 0))
+        # The game loaded the save, or nothing happened: the reader did not recognise the colony.
+        self.assertEqual(runner.classify_resume(menu), ("failed-resume-not-refused", 2))
+        self.assertEqual(runner.classify_resume(menu + "\n--- Error loading save ---\nSimDLL found bad data\n"), ("failed-resume-not-refused", 2))
+        self.assertEqual(runner.classify_resume(""), ("failed-before-main-menu", 2))
+        self.assertEqual(runner.classify_resume("", True), ("timeout", 2))
+        self.assertTrue(runner.RESUME_REFUSED_MARKER in refused)
+
+    def test_resume_preferences_hold_one_quoted_save_path(self):
+        text = runner.resume_preferences(Path('/tmp/run 1/resume "colony".sav'))
+        self.assertEqual(text, 'strings:\n  AutoResumeSaveFile: "/tmp/run 1/resume \\"colony\\".sav"\nints: {}\nfloats: {}\n')
+        self.assertEqual(runner.resume_preferences(Path("/tmp/a.sav")).count("\n"), 4)
+
+    def test_a_release_folder_may_run_the_menu_only_to_resume_a_save(self):
+        release = {"kind": "release", "release_ready": True}
+        self.assertIn("colony modes", runner.release_mode_error(release, "menu"))
+        self.assertIsNone(runner.release_mode_error(release, "menu", True))
+        self.assertIsNone(runner.release_mode_error(release, "colony-owner", True))
+
     def test_clean_menu_pass_ignores_game_noise(self):
         log = ("kGfxThreadingModeClientWorkerNativeJobs is not supported on OpenGL Core. "
                "Reverting to kGfxThreadingModeClientWorkerJobs instead.\n"

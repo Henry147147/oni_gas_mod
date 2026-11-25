@@ -70,14 +70,14 @@ static class Program
     private static void GameRefusals()
     {
         const string Updates = "Mixed Atmospheres update";
-        var newer = ModAdmission.UnsupportedBuild("1.13.7", 770001, 764025);
-        Check(newer.Notice.Contains("Mixed Atmospheres 1.13.7 does not support this version of Oxygen Not Included") && newer.Notice.Contains("the game is build 770001") &&
+        var newer = ModAdmission.UnsupportedBuild("1.13.8", 770001, 764025);
+        Check(newer.Notice.Contains("Mixed Atmospheres 1.13.8 does not support this version of Oxygen Not Included") && newer.Notice.Contains("the game is build 770001") &&
             newer.Notice.Contains("for build 764025") && newer.Notice.Contains(Updates) && newer.Notice.Contains("has not changed the game"), newer.Notice);
         Check(newer.LoadRefusal.Contains("(build 770001)") && newer.LoadRefusal.Contains("Install a Mixed Atmospheres update") &&
             newer.LoadRefusal.Contains("The save has not been changed."), newer.LoadRefusal);
-        var older = ModAdmission.UnsupportedBuild("1.13.7", 700000, 744825);
+        var older = ModAdmission.UnsupportedBuild("1.13.8", 700000, 744825);
         Check(older.Notice.Contains("Update Oxygen Not Included") && !older.Notice.Contains(Updates) && older.LoadRefusal.Contains("Update Oxygen Not Included, then load"), older.Notice);
-        Check(ModAdmission.UnsupportedBuild("1.13.7", 0, 764025).Notice.Contains("an unknown build"), "unreadable build number");
+        Check(ModAdmission.UnsupportedBuild("1.13.8", 0, 764025).Notice.Contains("an unknown build"), "unreadable build number");
 
         KeyValuePair<string, string[]> Part(string method, params string[] mods) => new KeyValuePair<string, string[]>(method, mods);
         var one = ModAdmission.OtherMods(764025, new[] { Part("SaveLoader.Save", "Fast Track") });
@@ -183,7 +183,8 @@ static class Program
             Check(sim != null && ColonySaveEnvelope.HasMagic(sim), "real save holds a Mixed Atmospheres envelope: " + path);
             var build = BitConverter.ToInt32(sim!, 12); var model = BitConverter.ToInt32(sim!, 16);
             var catalog = sim!.AsSpan(28, 32).ToArray();
-            Check(build == ColonySaveEnvelope.FirstSupportedBuild, "existing saves record build 744825");
+            // The envelope records the build that wrote it: 744825 in the prepared saves, a later supported build in a player's.
+            Check(build >= ColonySaveEnvelope.FirstSupportedBuild, "a real save records a supported build: " + build);
             Check(ColonySaveEnvelope.Parse(sim, build, model, catalog).EncodedLength == sim!.Length, "the real envelope parses unchanged");
             var later = ColonySaveEnvelope.Parse(sim, ColonySaveEnvelope.FirstSupportedBuild, build + 1, model, catalog);
             Check(later.OniBuild == build && later.CopyEncodedData().AsSpan().SequenceEqual(sim!), "a later verified build accepts the real envelope byte for byte");

@@ -76,8 +76,14 @@ class PlanTests(unittest.TestCase):
         quick, release = names(suite.plan("quick")), suite.plan("release")
         extra = [s for s in release if s.name not in quick]
         self.assertEqual([s.name for s in extra],
-                         [f"linux-x{i}" for i in range(1, len(suite.LINUX_EXTRA_BATCHES) + 1)] + ["linux-ten-cycle"])
+                         [f"linux-x{i}" for i in range(1, len(suite.LINUX_EXTRA_BATCHES) + 1)] + ["linux-resume-refused", "linux-ten-cycle"])
         self.assertEqual(extra[-1].options["frames"], 30000)
+        # The guard of a refused mod resumes the autosave that the one-cycle run wrote on the running build.
+        self.assertEqual((extra[-2].kind, extra[-2].deps), ("resume-refused", ("linux-one-cycle",)))
+        command = suite.describe(extra[-2])["command"]
+        self.assertEqual(command[command.index("--mode") + 1], "menu")
+        self.assertEqual(command[command.index("--resume-save") + 1], "<runs>/linux-one-cycle/auto_save/<autosave>")
+        self.assertEqual(command[command.index("--extra-mod-first") + 1], "<runs>/linux-resume-refused-other-mod")
         self.assertEqual(set(quick) - set(names(release)), set())
         self.assertEqual(names(suite.plan("release", ("windows",))), names(suite.plan("quick", ("windows",))))
 

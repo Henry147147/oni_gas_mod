@@ -366,7 +366,8 @@ namespace MixedAtmospheres.Oni
                 var header = new SavedBoundedCursor(image, offset, 16, "body-prefix/derived-KSAV-header");
                 if (header.ReadByte() != (byte)'K' || header.ReadByte() != (byte)'S' || header.ReadByte() != (byte)'A' || header.ReadByte() != (byte)'V')
                     throw new SavedInspectionException(SavedInspectionFailureKind.Malformed, offset, header.Path, "No KSAV header at the one computed offset");
-                if (header.ReadInt32() != 7 || header.ReadInt32() != 38)
+                // 7.38, or a later minor version with this same prefix (7.39 from game build 763796).
+                if (header.ReadInt32() != 7 || header.ReadInt32() < 38)
                     throw new SavedInspectionException(SavedInspectionFailureKind.Unsupported, offset, header.Path, "Unsupported KSAV version at the computed offset");
                 if (header.ReadInt32() < 0) throw new SavedInspectionException(SavedInspectionFailureKind.Malformed, offset, header.Path, "Negative KSAV group count");
                 return new SavedByteRange(offset, 16);

@@ -263,6 +263,9 @@ def plan(tier: str, platforms: tuple[str, ...] = PLATFORMS, scenarios: tuple[str
         steps.append(Step("linux-one-cycle", "linux", "cycle", build, {"frames": CYCLE_FRAMES["one-cycle"]}))
         if tier == "release":
             steps += extra_batches()
+            # The guard of a mod that is off (docs/playtest-1.13.8.md): the autosave the one-cycle run
+            # wrote on this game build must be refused before the game loads it.
+            steps.append(Step("linux-resume-refused", "linux", "resume-refused", ("linux-one-cycle",)))
             steps.append(Step("linux-ten-cycle", "linux", "cycle", build, {"frames": CYCLE_FRAMES["ten-cycle"]}))
     if "windows" in platforms:
         build = ("windows-build",)
@@ -1021,6 +1024,44 @@ def prepared_autosave(output: Path, revision: str) -> Path:
     return save
 
 
+def linux_cycle_autosave(output: Path, revision: str) -> Path:
+    """The natural autosave a passed Linux cycle run wrote: a colony save of the running game build."""
+    result = read_json(output / "result.json")
+    if (result.get("status") != "passed-colony-owner-load" or result.get("exit_code") != 0
+            or result.get("source_revision") != revision):
+        raise Refused("The cycle run did not pass on this revision")
+    autos = []
+    for file in sorted((output / "auto_save").glob("*.sav")):
+        try:
+            build, info = save_header(file.read_bytes())
+        except (OSError, ValueError, struct.error):
+            continue
+        if info.get("isAutoSave") is True and build in mod_identity.GAME_BUILDS:
+            autos.append(file)
+    if not autos:
+        raise Refused("The cycle run left no natural autosave")
+    return autos[-1].resolve()
+
+
+def resume_refused_command(package: Path, output: Path, infra: Infra, save: Path, other_mod: Path) -> list[str]:
+    """The main menu resumes `save` while a mod loaded first keeps Mixed Atmospheres off (tools/GameContractOtherMod)."""
+    return [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package),
+            "--mode", "menu", "--resume-save", str(save), "--extra-mod-first", str(other_mod),
+            "--gpu-display", infra.gpu_display, "--timeout", "600", "--output", str(output)]
+
+
+def resume_refused_checks(rc: int, output: Path, save: Path, save_sha: str) -> tuple[dict, dict]:
+    result = read_json(output / "result.json")
+    log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").is_file() else ""
+    build, header = save_header(save.read_bytes())
+    checks = {"harness_pass": rc == 0, "refused_before_loading": result.get("status") == "passed-resume-refused",
+              # The mod is off because of the other mod, and its guard is what refused the save.
+              "mod_off_by_other_mod": "Only the verified save-load guard is installed." in log,
+              "input_save_unchanged": sha256(save) == save_sha}
+    return checks, {"classification": result.get("status"), "input_save": {"path": str(save), "sha256": save_sha, "game_build": build,
+                    "save_version": f"{header.get('saveMajorVersion')}.{header.get('saveMinorVersion')}"}}
+
+
 def settings_source_save(output: Path) -> Path:
     result = read_json(output / "result.json")
     save = Path(result.get("host_saved_file") or "/nonexistent")
@@ -1183,6 +1224,22 @@ class Suite:
         env = clean_env({"MA_COLONY_FAULT_DUMP": str(output / "fault-dump.bin"),
                          **{key: value.replace("{output}", str(output)) for key, value in step.options.get("env", {}).items()}})
         common = {"output": str(output), "log": str(log), "package_source": manifest["source_revision"]}
+        if step.kind == "resume-refused":
+            save = linux_cycle_autosave(self.layout.runs / step.deps[0], self.revision)
+            save_sha = sha256(save)
+            other_mod = self.layout.runs / (step.name + "-other-mod")
+            if other_mod.exists():
+                raise Refused(f"Refusing to reuse {other_mod}")
+            built = subprocess.run(["dotnet", "build", "tools/GameContractOtherMod", "-c", "Release", "-o", str(other_mod), "--nologo",
+                                    "-v", "quiet", "-p:UseSharedCompilation=false", "-p:OniGameDir=" + str(self.infra.linux_game)],
+                                   cwd=self.layout.source, env=clean_env(), capture_output=True, text=True)
+            if built.returncode != 0:
+                raise Refused("The stand-in mod did not build: " + (built.stdout + built.stderr)[-400:])
+            # The stand-in leaves the load entries unpatched, so the guard can be installed on them.
+            env["MA_OTHER_MOD_LEAVES_LOAD"] = "1"
+            rc = self.game(resume_refused_command(package, output, self.infra, save, other_mod), log, env)
+            checks, details = resume_refused_checks(rc, output, save, save_sha)
+            return checks, {**common, "returncode": rc, **details}
         if step.kind != "cycle":
             rc = self.game(linux_command(step, package, output, self.infra), log, env)
             checks, details = linux_checks(rc, output)
@@ -1622,6 +1679,9 @@ def describe(step: Step) -> dict:
                 "commands": [locked_check(name, cmd) for name, cmd in offline_commands(Path("build-production"), output, infra.linux_game)]}
     if step.kind == "build":
         command = ["<build, CTest, hook tests and package>"]
+    elif step.kind == "resume-refused":
+        command = resume_refused_command(package, output, infra, Path("<runs>") / step.deps[0] / "auto_save/<autosave>",
+                                         Path("<runs>") / (step.name + "-other-mod"))
     elif step.platform == "linux":
         command = linux_command(step, package, output, infra, load=Path("<runs>") / (step.name + "-input.sav"))
     else:

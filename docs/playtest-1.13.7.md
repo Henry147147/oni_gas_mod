@@ -132,7 +132,9 @@ by hand on the `1de0c78` package and as `linux-x25` on `1032e94`.
 <a id="the-save-file-reader"></a>
 ## Found while testing: the save-file reader
 
-Not fixed in this version; it waits for the user's decision.
+Not fixed in this version. The user asked for the fix on 2026-11-25, and
+[1.13.8](playtest-1.13.8.md#the-save-file-reader) carries it; this version
+was never uploaded.
 
 Before a colony loads, the mod reads the save file to learn whether it is a
 Mixed Atmospheres colony (`ColonySaveReadback.SimSection`, behind

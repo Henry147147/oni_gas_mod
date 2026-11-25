@@ -58,16 +58,25 @@ few that your task touches, starting here.
   `publish/update-1.13.0` and `releases/1.13.0`; every release step has
   passed ([what ran](docs/playtest-1.13.0.md#staged-package)) and the upload
   waits for the user's go-ahead.
+  [1.13.8](docs/playtest-1.13.8.md) is 1.13.7 with the mod's reader of save
+  files repaired (user request 2026-11-25): it did not read saves of game
+  builds 763796 and 764025, so with the mod off (a conflicting mod, an
+  unsupported game build) a current Mixed Atmospheres colony was not refused
+  before loading and the game ended on its crash screen. The user also asked
+  for every save on the share to be loaded with the mod and the seven other
+  mods those saves were played with
+  ([the fifteen saves and the mods](docs/playtest-1.13.8.md#the-saves-on-the-share);
+  the copies are in `local/saves/share-2026-11-25` and `local/other-mods`),
+  and for the version to be uploaded
+  ([what ran](docs/playtest-1.13.8.md#staged-package)).
   [1.13.7](docs/playtest-1.13.7.md) is 1.13.6 with the fix for the user's
   report of 2026-11-25 on it: a colony with a Fertilizer Synthesizer (or
   another building that emits a gas through `BuildingElementEmitter`) threw an
   exception on every frame, because the game reads that emitter's record from
   [a table the owner did not publish](docs/colony-owner.md#the-emitted-mass-table).
-  It is staged on the private share (`publish/update-1.13.7`, `1de0c78`);
-  every release step has passed ([what ran](docs/playtest-1.13.7.md#staged-package))
-  and its upload waits for the user's go-ahead. Open, for the user to decide:
-  the mod's reader of save files does not read saves of the current game
-  builds ([what that means](docs/playtest-1.13.7.md#the-save-file-reader)).
+  It was staged on the private share (`publish/update-1.13.7`, `1de0c78`),
+  passed every release step ([what ran](docs/playtest-1.13.7.md#staged-package))
+  and was never uploaded: 1.13.8 contains it.
   [1.13.6](docs/playtest-1.13.6.md) is 1.13.5 with clearer refusals (user
   request 2026-11-25): a player on a supported build was told that the mod
   "does not support this version of Oxygen Not Included" because other mods
@@ -228,7 +237,9 @@ Workshop release. What is kept on purpose:
   `artifacts/v1.13.0` and `build-linux-ubuntu2204-7b521cb` hold the 1.13.0
   packages, runs, replay measurements and the review of the November 22
   recording.
-- `local/locks`, `local/saves` (prepared and playtest saves), `local/perf`
+- `local/other-mods` (other authors' mods that the user's saves were played
+  with, for load tests; never committed), `local/locks`, `local/saves`
+  (prepared and playtest saves), `local/perf`
   (private replay captures), `local/perf-tools` (the sampling profiler and
   capture helpers of the speed work) and `local/retired-2026-11-19` (uncommitted
   diffs of the removed worktrees and the few archived commits that never reached

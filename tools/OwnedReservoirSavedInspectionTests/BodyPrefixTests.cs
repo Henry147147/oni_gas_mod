@@ -255,6 +255,13 @@ internal static class BodyPrefixTests
             Reject(() => Parse(f, body: wrong.Concat(new byte[] { 75, 83, 65, 86, 7, 0, 0, 0, 38, 0, 0, 0, 0, 0, 0, 0 }).ToArray()));
             Reject(() => Parse(f, body: CopyWith(f, "ksav", 0)));
         });
+        Test("the derived KSAV header is 7.38 or a later minor version", () =>
+        {
+            var f = new Fixture(); int at = f.At["ksav"];
+            foreach (int minor in new[] { 38, 39, 40 }) Require(Parse(f, body: Patched(f, at + 8, minor)).KsavOffset == at);
+            foreach (int minor in new[] { 37, 0, -1 }) Reject(() => Parse(f, body: Patched(f, at + 8, minor)), SavedInspectionFailureKind.Unsupported);
+            foreach (int major in new[] { 6, 8 }) Reject(() => Parse(f, body: Patched(f, at + 4, major)), SavedInspectionFailureKind.Unsupported);
+        });
         Test("all per-item and aggregate resource caps reject before use", () =>
         {
             var f = new Fixture(o => { o.Streams.Add(new("two", new byte[] { 3, 4 })); o.Labels.Add(new(0, "b", "c", 2)); });
@@ -325,6 +332,7 @@ internal static class BodyPrefixTests
     private static void WireString(BinaryWriter w, string value) { byte[] bytes = Encoding.UTF8.GetBytes(value); w.Write(bytes.Length); w.Write(bytes); }
     private static void Template(BinaryWriter w, string type, string[] members, Func<string, byte[]> encoding, bool properties = false)
     { WireString(w, type); w.Write(properties ? 0 : members.Length); w.Write(properties ? members.Length : 0); foreach (string member in members) { WireString(w, member); w.Write(encoding(member)); } }
+    private static byte[] Patched(Fixture f, int offset, int value) { var bytes = (byte[])f.Body.Clone(); Put32(bytes, offset, value); return bytes; }
     private static byte[] CopyWith(Fixture f, string field, int value) { var bytes = (byte[])f.Body.Clone(); Put32(bytes, f.At[field], value); return bytes; }
     private static void Put32(byte[] bytes, int offset, int value)
     { Require(BitConverter.IsLittleEndian); Array.Copy(BitConverter.GetBytes(value), 0, bytes, offset, 4); }
