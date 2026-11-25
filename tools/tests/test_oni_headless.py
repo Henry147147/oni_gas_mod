@@ -1611,6 +1611,30 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(runner.contract_export(warning), "failed")
         self.assertEqual(runner.classify("menu", warning, self.probe, None, False), ("failed-mod-log-errors", 2))
 
+    def test_an_expected_refusal_excuses_only_its_own_lines(self):
+        refusal = ("[06:10:41.237] [1] [INFO] Mixed Atmospheres's patched_method Game.StartDelayedInitialSave matched in the stack trace, adding to referenced mods list\n"
+                   "NotSupportedException: The mixed-pipe control cannot save until its runtime inventory is validated.\n"
+                   "  at MixedAtmospheres.Oni.ColonyMixedPipeSaveGuard.Prefix () [0x0000e] in <36866f>:0 \n"
+                   "  at (wrapper dynamic-method) MonoMod.Utils.DynamicMethodDefinition.Game.StartDelayedInitialSave_Patch1(Game)\n"
+                   "  at WattsonMessage.StartInitialSave () [0x00015] in <0b914e>:0 \n"
+                   "UnityEngine.Debug:CallOverridenDebugHandler(Exception, Object)\n\n"
+                   "[06:10:43.060] [1] [WARNING] [Mixed Atmospheres] An exception is leaving a game method the mod patches; the game's report of it "
+                   "names only that method. NotSupportedException: The mixed-pipe control cannot save until its runtime inventory is validated.\n"
+                   "  first thrown at:\n"
+                   "  at MixedAtmospheres.Oni.ColonyMixedPipeSaveGuard.Prefix () [0x0000e] in <36866f>:0 \n"
+                   "  at (wrapper dynamic-method) MonoMod.Utils.DynamicMethodDefinition.SaveLoader.Save_Patch5(SaveLoader,string,bool,bool)\n")
+        other = ("NullReferenceException: Object reference not set to an instance of an object\n"
+                 "  at (wrapper dynamic-method) MonoMod.Utils.DynamicMethodDefinition.Game.SimEveryTick_Patch7(Game,single)\n"
+                 "[Mixed Atmospheres] retention accounting failed: faults 0 exceptions 360 overflow 0\n")
+        asked = ("The mixed-pipe control cannot save",)
+        self.assertEqual(len(runner.mod_failure_lines(refusal)), 3)
+        self.assertEqual(runner.mod_failure_lines(refusal, (), asked), [])
+        self.assertEqual(runner.mod_failure_lines(refusal, (), ("",)), runner.mod_failure_lines(refusal))
+        kept = runner.mod_failure_lines(refusal + other, (), asked)
+        self.assertEqual(kept, runner.mod_failure_lines(other))
+        self.assertEqual(len(kept), 1)
+        self.assertEqual(runner.classify("menu", refusal + other, self.probe, None, False, expected_refusals=asked), ("failed-mod-log-errors", 2))
+
     def test_clean_menu_pass_ignores_game_noise(self):
         log = ("kGfxThreadingModeClientWorkerNativeJobs is not supported on OpenGL Core. "
                "Reverting to kGfxThreadingModeClientWorkerJobs instead.\n"

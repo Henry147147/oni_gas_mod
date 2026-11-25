@@ -613,7 +613,7 @@ def contract_export(log: str) -> str | None:
     return "completed" if EXPORT_DONE_MARKER in after else None
 
 
-def mod_failure_lines(log: str, identifiers: tuple[str, ...] = ()) -> list[str]:
+def mod_failure_lines(log: str, identifiers: tuple[str, ...] = (), expected: tuple[str, ...] = ()) -> list[str]:
     """Return Player.log lines showing a mod-originated error, exception or Harmony failure.
 
     A line fails when it names the mod and says fail/error/exception, or is a
@@ -622,10 +622,15 @@ def mod_failure_lines(log: str, identifiers: tuple[str, ...] = ()) -> list[str]:
     the exception stack to one of this mod's patches. Game-only lines are
     ignored, as is a worker exception whose own header says "Thread was being
     aborted". A nearby abort never suppresses a mod or Harmony failure.
+
+    `expected` names refusals a control run asks for (--expected-refusal): a
+    line holding one of these texts, and the stack of an exception whose
+    header holds one, is not a failure. Nothing else is excused.
     """
     names = MOD_IDENTIFIERS + tuple(name for name in identifiers if name)
     lines = log.splitlines()
     found: dict[int, str] = {}
+    owner: dict[int, int] = {}
     header = None
     attributed: set[int] = set()
     for index, line in enumerate(lines):
@@ -640,22 +645,31 @@ def mod_failure_lines(log: str, identifiers: tuple[str, ...] = ()) -> list[str]:
                 attributed.add(header)
                 found[header] = lines[header]
                 found[index] = line
+                owner[index] = header
             if stack_frame:
                 continue
         header = index
         if HARMONY_FAILURE.search(line) or (any(name in line for name in names) and FAILURE_WORDS.search(line)):
             found[index] = line
-    return [found[index].strip()[:500] for index in sorted(found)]
+    asked = [text for text in expected if text]
+    return [found[index].strip()[:500] for index in sorted(found)
+            if not any(text in lines[owner.get(index, index)] for text in asked)]
+
+
+def expected_refusals(args) -> tuple[str, ...]:
+    asked = getattr(args, "expected_refusal", None)
+    return tuple(asked) if isinstance(asked, (list, tuple)) else ()
 
 
 def classify(mode: str, log: str, probe: dict | None, report: dict | None, timed_out: bool,
              player_exit: int | None = None, identifiers: tuple[str, ...] = (),
-             expected_platform: str = "LinuxPlayer", diagnostic_stopped: bool = False) -> tuple[str, int]:
+             expected_platform: str = "LinuxPlayer", diagnostic_stopped: bool = False,
+             expected_refusals: tuple[str, ...] = ()) -> tuple[str, int]:
     # Positive evidence of a mod failure outranks the Steam block so it is never
     # hidden; result.json records steam_blocked separately.
     if "[Mixed Atmospheres] Integration probe failed:" in log or "[Mixed Atmospheres] Colony validation failed:" in log:
         return "failed-runtime-validation", 2
-    if mod_failure_lines(log, identifiers):
+    if mod_failure_lines(log, identifiers, expected_refusals):
         return "failed-mod-log-errors", 2
     if probe is not None and not probe_passed(probe, expected_platform):
         return "failed-integration-probe", 2
@@ -1230,7 +1244,8 @@ def playtest(args, state: Path, session: dict) -> int:
             report = read_json(colony_file) if colony_file.exists() else None
             log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
             player_exit = CHILDREN[record["pid"]].poll()
-            status, code = classify(args.mode, log, probe, report, timed_out, player_exit, (mod_id,), diagnostic_stopped=stopped_for_limit)
+            status, code = classify(args.mode, log, probe, report, timed_out, player_exit, (mod_id,), diagnostic_stopped=stopped_for_limit,
+                                    expected_refusals=expected_refusals(args))
             final_owner_report = limit_report
             if stopped_for_limit or args.mode in ("colony-owner", "colony-owner-load"):
                 try: final_owner_report = read_json(colony_file.parent / "colony-owner.json")
@@ -1309,7 +1324,8 @@ def playtest(args, state: Path, session: dict) -> int:
                 "inspection_seconds_held": time.monotonic() - inspection_started if inspection_started is not None else 0,
                 "steam_blocked": steam_blocked(log),
                 "integration_probe_failed": not probe_passed(probe),
-                "mod_failure_lines": mod_failure_lines(log, (mod_id,))[:50],
+                "mod_failure_lines": mod_failure_lines(log, (mod_id,), expected_refusals(args))[:50],
+                "expected_refusals": list(expected_refusals(args)),
                 "main_menu_reached": MAIN_MENU_MARKER in log,
                 "main_menu_contract_export": contract_export(log),
                 "colony_started": bool(report and report.get("GameStarted")),
@@ -1399,6 +1415,9 @@ def main() -> int:
                       help="Also install and enable this built mod folder (mod.yaml, mod_info.yaml, DLLs) after the package; repeatable")
     play.add_argument("--extra-mod-first", type=Path, action="append", metavar="FOLDER",
                       help="Like --extra-mod, but the game loads this mod before the package; repeatable")
+    play.add_argument("--expected-refusal", action="append", metavar="TEXT",
+                      help="A control run only: a mod log line holding TEXT, and the stack of an exception whose header holds it, "
+                           "is the refusal the scenario asks for and not a failure; repeatable")
     play.add_argument("--reload-in-process", action="store_true", help="Return through the main menu and load again in the same Unity process; requires initial autosave control")
     play.add_argument("--load-save", type=Path, help="Completed private colony save for native-load-domain")
     play.add_argument("--vanilla-load", action="store_true", help="colony-owner-load: hand the save to ONI's own loader, which must refuse it")

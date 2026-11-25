@@ -110,7 +110,8 @@ LINUX_EXTRA_BATCHES = (
     # starting-air reads the pod's air as the game generated it: first in its game.
     ("starting-air,face-forces,shown-liquid,byproduct-merge", 0, (), {}),
     # The refusal this control asks for exists only while pipe saves are off (docs/mixed-pipes.md).
-    ("mixed-pipe-save-guard", 0, (), {"MA_COLONY_PIPE_SAVES": "0"}),
+    # While the control holds the pipes the game's own first save is refused as well, and the game logs that exception.
+    ("mixed-pipe-save-guard", 0, ("--expected-refusal", "The mixed-pipe control cannot save"), {"MA_COLONY_PIPE_SAVES": "0"}),
     ("mixed-pipe-owned-storage,mixed-storage-transfer-heat", 0, (), {}),
     ("owned-storage-retirement,owned-storage-readers,owned-storage-biology", 0, (), {}),
     # The exact storage writer is development-only (user decision 2026-11-04); its save controls
