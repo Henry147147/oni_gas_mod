@@ -41,7 +41,7 @@ namespace MixedAtmospheres.Oni
         private static List<BuildingDef>? censusDefs;
         private static int censusNext, censusPhaseFrame;
         private static string censusPhase = "";
-        private static GameObject? censusBuilding;
+        private static GameObject? censusBuilding, censusSupport;
         private static CensusEntry? censusEntry;
         private static bool censusListening;
         // The sim-facing components worth knowing about when a building misbehaves.
@@ -119,7 +119,7 @@ namespace MixedAtmospheres.Oni
         {
             if (Once(0, "arena"))
             {
-                census.Clear(); censusNext = 0; censusBuilding = null; censusEntry = null; censusPhase = "restore"; censusPhaseFrame = 0;
+                census.Clear(); censusNext = 0; censusBuilding = censusSupport = null; censusEntry = null; censusPhase = "restore"; censusPhaseFrame = 0;
                 censusDefs = CensusDefs(part, parts);
                 Arena(CensusCell, CensusWidth, CensusHeight);
                 if (!censusListening) { Application.logMessageReceived += CensusLog; censusListening = true; }
@@ -148,7 +148,11 @@ namespace MixedAtmospheres.Oni
                     try { Util.KDestroyGameObject(censusBuilding); }
                     catch (Exception error) { entry.Logs.Add("Exception: removal threw " + error.GetType().Name + ": " + error.Message); }
                 }
-                censusBuilding = null; censusPhase = "restore"; censusPhaseFrame = 0;
+                // The engine a base-game rocket module stood on goes after it.
+                if (censusSupport != null)
+                    try { Util.KDestroyGameObject(censusSupport); }
+                    catch (Exception error) { entry.Logs.Add("Exception: removal of the engine below threw " + error.GetType().Name + ": " + error.Message); }
+                censusBuilding = censusSupport = null; censusPhase = "restore"; censusPhaseFrame = 0;
             }
         }
 
@@ -179,17 +183,25 @@ namespace MixedAtmospheres.Oni
                 Deprecated = def.Deprecated, DebugOnly = def.DebugOnly };
             census.Add(entry); censusEntry = entry; Current.Stage = $"{census.Count} of {censusDefs!.Count}: {def.PrefabID}";
             censusPhase = "live"; censusPhaseFrame = now; entry.BuiltFrame = now;
-            // A rocket module exists only as part of a rocket: built alone it has no craft, and ONI's own circuit
-            // manager then throws at every frame (seen under ONI's own simulation). Rockets have their own scenarios.
-            if (def.BuildingComplete.GetComponent<RocketModuleCluster>() != null || def.BuildingComplete.GetComponent<RocketModule>() != null ||
-                def.BuildingComplete.GetComponent<ReorderableBuilding>() != null)
+            // A Spaced Out! rocket module exists only as part of a rocket: built alone it has no craft, and ONI's own
+            // circuit manager then throws at every frame (seen under ONI's own simulation). every-rocket-building
+            // builds those. A base-game module stands on the ground or on the module below it: an engine is built
+            // alone here, any other module on top of a steam engine, as a player stacks them.
+            if (def.BuildingComplete.GetComponent<RocketModuleCluster>() != null || def.BuildingComplete.GetComponent<ReorderableBuilding>() != null)
             { entry.Outcome = "rocket module"; censusBuilding = null; censusPhaseFrame = now - CensusLife; return; }
+            var support = def.BuildingComplete.GetComponent<RocketModule>() != null && def.BuildingComplete.GetComponent<RocketEngine>() == null
+                ? Assets.GetBuildingDef(SteamEngineConfig.ID) : null;
             // The same holds for a building of a rocket's interior (its ports, power plug and control station): outside
             // a rocket its power plug has no circuit and every wire built afterwards throws, also under ONI's own simulation.
             if (RocketInteriorBuilding(def))
             { entry.Outcome = "rocket interior building"; censusBuilding = null; censusPhaseFrame = now - CensusLife; return; }
-            if (def.WidthInCells > CensusWidth - 2 || def.HeightInCells > CensusHeight - 2) { entry.Outcome = "does not fit the room"; entry.Logs.Add("Skipped: does not fit the room"); censusBuilding = null; censusPhaseFrame = now - CensusLife; return; }
-            try { censusBuilding = def.Build(Cell(CensusOriginX, CensusOriginY), Orientation.Neutral, null, CensusMaterials(def), 300, playsound: false); entry.Outcome = "built"; }
+            if (def.WidthInCells > CensusWidth - 2 || def.HeightInCells + (support?.HeightInCells ?? 0) > CensusHeight - 1) { entry.Outcome = "does not fit the room"; entry.Logs.Add("Skipped: does not fit the room"); censusBuilding = null; censusPhaseFrame = now - CensusLife; return; }
+            try
+            {
+                if (support != null) censusSupport = support.Build(Cell(CensusOriginX, CensusOriginY), Orientation.Neutral, null, CensusMaterials(support), 300, playsound: false);
+                censusBuilding = def.Build(Cell(CensusOriginX, CensusOriginY + (support?.HeightInCells ?? 0)), Orientation.Neutral, null, CensusMaterials(def), 300, playsound: false);
+                entry.Outcome = "built";
+            }
             catch (Exception error)
             {
                 censusBuilding = null; entry.Outcome = "build threw";

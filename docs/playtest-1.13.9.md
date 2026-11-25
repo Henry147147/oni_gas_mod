@@ -100,7 +100,8 @@ Left as they are, and listed for the user:
 | The same, this version | 239,976 to 129,390 (9,216 a cell); ledgers closed |
 | What ONI's emitter does, cell by cell (a probe scenario, not kept) | once a second the count leaves the emitter's cell and each of its four neighbours; the owner's cells follow the same pattern |
 | Every building under ONI's own simulation, Spaced Out! content: 430 buildings | 384 built in the room, 45 left to the rocket pass, 1 taller than the room; 3 log or remove themselves (the baseline) |
-| The same, base game content: 352 buildings | 336 built, 15 base-game rocket modules not placed by any pass yet, 1 taller than the room |
+| The same, base game content: 352 buildings | 336 built, 15 base-game rocket modules not placed by this version's form of the test, 1 taller than the room |
+| The same with the base game's rocket modules (test change after this version, [below](#after-this-version)) | 351 of 352 built; the ice sculpture melts (the baseline), the command capsule is taller than the room |
 | Rocket pass under ONI's own simulation | 45 of 45 built: 8 engines, 23 other modules, 14 interior buildings; nothing logged |
 | Critters, plants and geysers under ONI's own simulation | 135 of 135 spawned (78 critters, 27 plants, 30 geysers); 7 log or leave (the baseline) |
 | Every building under this version's owner, Spaced Out! content, four parts | 384 built (101, 96, 100, 87), nothing beyond the baseline, no fault, ledgers closed (at most 2.1e-16 mass, 7.4e-16 energy) |
@@ -114,13 +115,24 @@ The passes under this version's owner with the final form of the tests, and
 the package's builds and acceptance run, are recorded under
 [Staged package](#staged-package).
 
-## Not covered yet
+## After this version
+
+Tests only; the package is unchanged.
 
 The base game's own rocket modules (15 buildings, in a colony without Spaced
-Out!) are placed by no pass: they need a base-game rocket stack, which the
-room pass does not build. The base game's command capsule is taller than the
-room. Both are recorded as such by the scenario and follow after this
-version.
+Out!) were placed by no pass when this version was cut. The room pass now
+builds them as a player stacks them: an engine alone on the floor, any other
+module on a steam engine, which is removed after it. Spaced Out!'s modules
+stay with `every-rocket-building`.
+
+| Check, game 764025, the package of this version with the changed test | Result |
+| --- | --- |
+| Base game content under ONI's own simulation, four parts | 351 of 352 built; nothing logged beyond the ice sculpture's baseline entry |
+| Base game content under this version's owner, four parts | 351 of 352 built (87, 88, 88, 88), nothing beyond the baseline, no fault, ledgers closed (at most 1.2e-15 mass, 2.2e-16 energy) |
+| Spaced Out! content under this version's owner, four parts | 384 built (101, 96, 100, 87) and 45 left to the rocket pass, as before the change; nothing beyond the baseline, no fault, ledgers closed |
+
+The base game's command capsule (`CrewCapsule`, a building the game no longer
+offers) is taller than the room and stays recorded as skipped.
 
 ## Staged package
 
@@ -140,8 +152,10 @@ request of that day.
 | Load matrix (the three game builds, Linux and Windows under Proton) | 6 of 6 |
 | Patch tier with the batches of `building-emitter` and of `message-edges,germ-cleaner` | 8 of 8 |
 
-After the upload, on the same revision: the user's other ten share saves,
-the whole release tier (with its 13 new games, `linux-resume-refused` and
-the steps [1.13.8 did not run](playtest-1.13.8.md#staged-package)), the
-base-game building parts under the owner and a pass for the base game's own
-rocket modules. Their results are recorded here once they have run.
+After the upload, on the same revision:
+
+| Step | Result |
+| --- | --- |
+| The user's other ten share saves (Cycles 49, 55, 121 to 127, 129) on the release folder with the seven other mods, Linux game 764025 | 10 of 10 load, run 300 ticks at speed 3 and save; with the five before the upload, each of the fifteen saves has loaded on this version |
+| The base-game building parts under the owner, with the base game's rocket modules | passed ([above](#after-this-version)) |
+| The whole release tier (with its 13 new games, `linux-resume-refused` and the steps [1.13.8 did not run](playtest-1.13.8.md#staged-package)) | running when this was written; the result is recorded here |

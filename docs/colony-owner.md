@@ -2313,6 +2313,9 @@ and `every-living` place everything, one subject at a time
   construction commands (`LaunchPad.AddBaseModule`,
   `ReorderableBuilding.AddModule`) and removed through
   `ReorderableBuilding.RemoveModule`.
+  The base game's own modules (a colony without Spaced Out!) stand on the
+  ground or on the module below, so the room pass builds them: an engine
+  alone, any other module on a steam engine that is removed after it.
 
 A subject is idle in its 22 ticks: it has no power, no inputs and no
 duplicant. What a building does when it runs stays with the scenarios that
