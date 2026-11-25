@@ -8,6 +8,20 @@ still require separate authorization.
 
 Amendments:
 
+- **Ledger bound of the Windows runner, user decision 2026-11-25:** the
+  Windows (Proton) runner accepts a colony whose lifetime mass and energy
+  ledger figures are at most 1e-8; it asked 1e-12. The figures are the
+  largest relative difference a colony has ever seen between what it holds
+  and what its ledger books, they are saved with the colony, and the owner
+  itself stops a colony at 1e-8 mass and 1e-6 energy. The user's colony
+  stood at 2.76e-12 from Cycle 70 on, so the runner reported every later
+  save as failed although it loaded, ran and saved without an error
+  ([1.13.8](playtest-1.13.8.md#found-while-testing-the-ledger-figure-of-a-long-colony)).
+  The acceptance suite's cycle runs already used the owner's own bounds;
+  the in-game scenarios keep their own 1e-12 checks on their short test
+  colonies. The user also asked for no study of what ONI's own simulation
+  conserves.
+
 - **Gas source energy option, compensated by default, user decision
   2026-11-09:** one colony setting offers all three ways for gas from
   machines, vents, pumps, duplicants and sublimating tiles to carry energy:

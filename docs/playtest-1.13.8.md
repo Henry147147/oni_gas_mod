@@ -87,8 +87,10 @@ The package's builds and acceptance run are recorded under
 
 ## Found while testing: the ledger figure of a long colony
 
-Not a fault of loading, and nothing was changed for it; it is recorded for
-the user.
+Not a fault of loading. Decided by the user on 2026-11-25, after the upload:
+the Windows runner's bound is 1e-8 from then on
+([the decision](completion-plan.md)); the runs recorded on this page were
+made and judged under the earlier 1e-12, as described here.
 
 The colony owner keeps, for the whole life of a colony, the largest relative
 difference it has seen between the mass it holds and the mass its ledger

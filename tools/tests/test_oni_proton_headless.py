@@ -171,8 +171,14 @@ class ProtonIsolationTests(unittest.TestCase):
                      Scenarios=[dict(Passed=True)])
         self.assertTrue(runner.colony_owner_passed(owner))
         self.assertFalse(runner.colony_owner_passed(None))
+        # The ledger figures are a colony's lifetime maxima: 1e-8 is the bound (user decision 2026-11-25). The
+        # user's Cycle 130 colony stands at 2.76e-12 and 7.8e-14.
+        self.assertEqual(runner.LEDGER_BOUND, 1e-8)
+        self.assertTrue(runner.colony_owner_passed(dict(owner, MaximumRelativeMassError=2.755070011213394e-12, MaximumRelativeEnergyError=7.78e-14)))
+        self.assertTrue(runner.colony_owner_passed(dict(owner, MaximumRelativeMassError=1e-8)))
         for key, value in (("State", 2), ("Faulted", True), ("CompletedFrames", 0), ("OwnedCells", 0),
-                           ("MaximumRelativeMassError", float("nan")), ("MaximumRelativeEnergyError", 1e-8),
+                           ("MaximumRelativeMassError", float("nan")), ("MaximumRelativeEnergyError", 1.1e-8),
+                           ("MaximumRelativeMassError", 2e-8), ("MaximumRelativeMassError", -1e-15),
                            ("Error", "fault"), ("Scenarios", [dict(Passed=False)]), ("RendererError", "failed")):
             with self.subTest(key=key):
                 self.assertFalse(runner.colony_owner_passed(dict(owner, **{key: value})))

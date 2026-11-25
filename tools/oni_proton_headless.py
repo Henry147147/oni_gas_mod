@@ -184,15 +184,22 @@ def optional_json(path: Path) -> dict | None:
         return None
 
 
+LEDGER_BOUND = 1e-8
+
+
 def colony_owner_passed(owner: dict | None) -> bool:
     """Require actual owned frames, closed ledgers, and completed scenario checks."""
     if not isinstance(owner, dict) or owner.get("State") != 1 or owner.get("Faulted") is not False or owner.get("Error") != "":
         return False
     if not all(type(owner.get(key)) is int and owner[key] > 0 for key in ("CompletedFrames", "OwnedCells", "Publications")):
         return False
+    # 1e-8 (user decision 2026-11-25, docs/completion-plan.md): the figures are the largest relative ledger
+    # difference of the colony's whole life, saved with it, and the owner itself stops a colony at 1e-8
+    # mass. Until then this runner asked 1e-12, which a player's colony of 70 cycles no longer met
+    # although it loaded, ran and saved without an error (docs/playtest-1.13.8.md).
     for key in ("MaximumRelativeMassError", "MaximumRelativeEnergyError"):
         value = owner.get(key)
-        if type(value) not in (float, int) or not math.isfinite(value) or not 0 <= value <= 1e-12:
+        if type(value) not in (float, int) or not math.isfinite(value) or not 0 <= value <= LEDGER_BOUND:
             return False
     if owner.get("PresentationError") or owner.get("RendererError"):
         return False
