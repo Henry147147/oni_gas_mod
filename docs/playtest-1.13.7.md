@@ -98,9 +98,66 @@ The package's builds and acceptance run are recorded under
 
 ## Staged package
 
-The builds, the package for the three game builds, the Workshop dry run, the
-user's Cycle 128 save on the release package, the load matrix and the patch
-tier run on this version's revision. The release tier continues where
-[1.13.6's chain](playtest-1.13.6.md#staged-package) stood when this version
-replaced it, and adds the new scenario's game (`linux-x36`). Results are
-recorded here once they have run.
+`1de0c78` is staged on the private share as `publish/update-1.13.7` and
+`releases/1.13.7` since 2026-11-25 04:33 UTC. Its upload waits for the
+user's go-ahead; the Workshop serves 1.13.6.
+
+| Step, on `1de0c78` | Result |
+| --- | --- |
+| Release builds (Linux for Ubuntu 22.04, Windows), package for game builds 744825, 763796 and 764025, archive verification | passed |
+| The user's Cycle 128 save on the release folder (Linux game 764025, 300 ticks at speed 3, then a save) | loads, runs and saves; no exception |
+| Workshop dry run | passed; nothing was sent |
+| Load matrix (the three game builds, Linux and Windows under Proton) | 6 of 6 |
+| Patch tier | 6 of 6; `linux-offline` on its second run ([why](#the-save-file-reader)) |
+| Release tier: the 49 steps that [1.13.6's chain](playtest-1.13.6.md#staged-package) had not completed, with the new `linux-x36` | 48 passed, among them `linux-ten-cycle` and all 19 Windows steps; `linux-x25` failed in the harness ([below](#the-control-step)) |
+
+The first 16 release-tier steps passed on `d63861d` and were not repeated:
+the two revisions differ in the emitters' table and rate, which the patch
+tier and the 48 steps above run with.
+
+### The control step
+
+`linux-x25` runs `mixed-pipe-save-guard`, a control of the development switch
+`MA_COLONY_PIPE_SAVES=0`, which no player's package can set. While the
+control holds the pipes it refuses every save, the game's own first save
+among them; the game logs that refusal as an exception with a mod frame, and
+the harness counted it as a mod error. Run on the 1.13.6 package the step
+fails in the same way: it had not run in an acceptance chain since it joined
+the release tier in 1.13.5. `tools/oni_headless.py` now takes
+`--expected-refusal TEXT`, which excuses a log line holding the text and the
+stack of an exception whose header holds it, and nothing else; the batch
+names its refusal (`1032e94`, tools only). With it the step passes 7 of 7,
+by hand on the `1de0c78` package and as `linux-x25` on `1032e94`.
+
+<a id="the-save-file-reader"></a>
+## Found while testing: the save-file reader
+
+Not fixed in this version; it waits for the user's decision.
+
+Before a colony loads, the mod reads the save file to learn whether it is a
+Mixed Atmospheres colony (`ColonySaveReadback.SimSection`, behind
+`ColonyOwnerPersistence.IsMixtureSave` and `LoadRefusal`). The reader
+accepts only the game's object-save version 7.38
+(`OwnedReservoirLoadHeaderV1.InspectLayoutHeader`, and the KSAV header that
+`SavedBodyPrefixInspector` checks after the sim payload). Game builds 763796
+and 764025 write 7.39, so for a save written by them the reader returns
+nothing:
+
+- With the mod running, nothing a colony needs depends on it: the load
+  itself reads the envelope from the game's own stream, and the user's saves
+  load.
+- With the mod off (another mod's patch, a game build it has no support
+  for), the guard that keeps a Mixed Atmospheres colony out of ONI's own
+  simulation (`GameBuildCheck`) does not recognise such a save. The
+  refusals before loading (an earlier material model, an unsupported
+  content pack) are skipped for it as well, and the in-game load makes them
+  later.
+
+This has been so since 1.10.1, the first version for build 763796. It
+showed when copies of the user's two autosaves stood in `local/saves`:
+`tools/DistributionTests` reads every save there and the patch tier's
+offline step failed on them. They now stand in a subfolder, and the step
+passed on its second run. Accepting 7.39 in both places lets the checks
+before loading run on every current save, so the change needs in-game runs
+through the load screen, with the mod on (no colony wrongly refused) and off
+(the colony refused).

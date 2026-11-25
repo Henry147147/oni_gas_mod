@@ -63,8 +63,11 @@ few that your task touches, starting here.
   another building that emits a gas through `BuildingElementEmitter`) threw an
   exception on every frame, because the game reads that emitter's record from
   [a table the owner did not publish](docs/colony-owner.md#the-emitted-mass-table).
-  It is staged on the private share; its release chain continues where
-  1.13.6's stood, and its upload waits for the user's go-ahead.
+  It is staged on the private share (`publish/update-1.13.7`, `1de0c78`);
+  every release step has passed ([what ran](docs/playtest-1.13.7.md#staged-package))
+  and its upload waits for the user's go-ahead. Open, for the user to decide:
+  the mod's reader of save files does not read saves of the current game
+  builds ([what that means](docs/playtest-1.13.7.md#the-save-file-reader)).
   [1.13.6](docs/playtest-1.13.6.md) is 1.13.5 with clearer refusals (user
   request 2026-11-25): a player on a supported build was told that the mod
   "does not support this version of Oxygen Not Included" because other mods

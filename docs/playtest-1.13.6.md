@@ -97,4 +97,5 @@ tier (6 of 6) passed, and so did the first 16 of the 64 release-tier steps
 `linux-x7`). The chain was stopped there on 2026-11-25 at 04:17 UTC, when
 [1.13.7](playtest-1.13.7.md) replaced this version: a colony with a
 Fertilizer Synthesizer threw an exception on every frame, in this version as
-in every earlier one. The other 48 steps run on 1.13.7.
+in every earlier one. The other 48 steps ran on 1.13.7
+([results](playtest-1.13.7.md#staged-package)).
