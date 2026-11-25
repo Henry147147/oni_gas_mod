@@ -87,4 +87,14 @@ release tier, it runs the 64 steps that
 [1.13.5's chain](playtest-1.13.5.md#staged-package) had not completed
 (`linux-Oceania` onwards); the 18 that passed on `993c3c3` are not repeated,
 since the two versions differ only in what the mod does before it starts.
-Results are recorded here once they have run.
+
+The user uploaded this version to the Workshop on 2026-11-25 at 03:09 UTC,
+while the chain was running (`tools/workshop.py status`: 1.13.6, `d63861d`,
+every file as its manifest pins it). On `d63861d` the builds, the package
+verification, the Workshop dry run, the load matrix (6 of 6) and the patch
+tier (6 of 6) passed, and so did the first 16 of the 64 release-tier steps
+(`linux-Oceania` to `linux-Oasis`, `linux-one-cycle`, `linux-x1` to
+`linux-x7`). The chain was stopped there on 2026-11-25 at 04:17 UTC, when
+[1.13.7](playtest-1.13.7.md) replaced this version: a colony with a
+Fertilizer Synthesizer threw an exception on every frame, in this version as
+in every earlier one. The other 48 steps run on 1.13.7.

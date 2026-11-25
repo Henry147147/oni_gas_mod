@@ -381,15 +381,37 @@ constituents. An any-gas or any-liquid consumer that names an element (a mask
 station's oxygen and polluted-oxygen consumers) takes only that element, since
 ONI stores a receipt only of its element and deletes the rest. The receipts
 carry the consumer flag and return as ONI's consumed-mass events for the
-handle, one per constituent, so a pump's storage holds the mixture it drew. An emitter injects its rate × dt at its cell (ONI
-sends the output element's generation rate in kg/s; its germs count per
-emission interval), unless the cell's dominant phase already holds the
-emitter's maximum (kg), and answers its blocked and unblocked callbacks on
-each change.
+handle, one per constituent, so a pump's storage holds the mixture it drew. An emitter injects its rate × dt at its cell, unless the cell's dominant
+phase already holds the emitter's maximum (kg), and answers its blocked and
+unblocked callbacks on each change. ONI states an emitter's mass and germ
+count per emission interval, so the rate is the mass over the interval: an
+`ElementEmitter` (geysers, plants, most buildings) uses one second, a
+`BuildingElementEmitter` 0.2 s. Until 1.13.7 the owner read the mass as a
+rate per second whatever the interval, so a Fertilizer Synthesizer gave off
+2 g/s of natural gas instead of ONI's 10 g/s.
 
 Each emitter's added mass is booked per element to an external source
 ledger named after what stands at its cell (a geyser, a building;
 `EmitterSources` in the report).
+
+<a id="the-emitted-mass-table"></a>
+ONI's data of each frame also carries an emitted-mass table: one record per
+emitter, at the index in its handle's low 24 bits, with what the emitter put
+out in that frame. Most emitters never read it. A `BuildingElementEmitter`
+does, every tick, for its emission rate and the daily report (the Fertilizer
+Synthesizer's natural gas, the Blastshot Maker's carbon dioxide, the two
+buildings that later game builds added), and so does the geothermal vent of
+The Frosty Planet Pack. ONI's own table has no record of an emitter the owner
+runs, and it is a null address when ONI runs none, as in every loaded
+colony: until 1.13.7 that read stopped the game's tick, at every tick, in a
+colony with such a building ([the report](playtest-1.13.7.md)). Every
+publication now carries the table with a record for each owned emitter: what
+it queued since the last publication (element, mass, temperature, germs),
+zero in a publication without a positive frame. The table is as long as the
+highest owned emitter index needs; the records ONI wrote for emitters it still
+runs stay as they are. An emitter the owner took from ONI keeps its native
+handle, so the owner gives no emitter of its own an index that one of those
+uses (`ColonyActors.NextIndex`).
 
 Left native, a consumer ate the projection's one element. The shadow's other
 mass changes ([above](#native-bodies)) are chiefly ONI deleting gas exposed to
@@ -2170,6 +2192,7 @@ The home asteroid of a Spaced Out! colony is 160 cells wide with the printing po
 | `space-heater` | A powered space heater warms the arena's air. |
 | `bottle-emptier` | A gas canister emptier releases its stored carbon dioxide into the owner, and a bottle emptier's water falls as particles into owned cells. |
 | `gas-generator` | A natural gas generator burns stored methane; its carbon dioxide goes through its exhaust pipe and a vent into the owner. |
+| `building-emitter` | A Fertilizer Synthesizer runs: its natural gas reaches the owner, the game's data holds [the emitted-mass table](#the-emitted-mass-table) for its handle, and the building reads the rate it emits at (10 g/s). |
 | `germs` | Slimelung released with polluted oxygen spreads with the gas. |
 | `puft` | A puft breathes the arena's polluted oxygen out of the owner. |
 | `plant` | A wild mealwood in owned oxygen reads normal pressure and a safe atmosphere; one in thinner air beyond a wall reads low pressure. |

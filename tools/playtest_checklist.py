@@ -99,7 +99,7 @@ SCENARIO_SYSTEMS: dict[str, tuple[list[str], tuple[str, ...]]] = {
     "refineries": (MACHINES, ("polymer-press", "rust-deoxidizer")),
     "electrolysis": (MACHINES, ("electrolysis", "electrolyzer-blocked")),
     "generators": (MACHINES, ("gas-generator", "coal-generator")),
-    "emitters-consumers": (ACTORS, ("life-support", "wheezewort", "oxyfern")),
+    "emitters-consumers": (ACTORS, ("life-support", "wheezewort", "oxyfern", "building-emitter")),
     "sublimation": ([*SHADOW, "managed/MixedAtmospheres.Oni/ColonySublimation.cs"], ("sublimation", "natural-sublimation")),
     "duplicants": (ACTORS, ("breathing", "hazards", "germ-exposure")),
     "storage": (OWNER, ("bottle-emptier", "storage-ledger")),
@@ -168,6 +168,8 @@ PASSED_SCENARIOS: set[str] = {
     "natural-sublimation",
     # Two gas pumps on one pipe to a vent, owner and ONI reference, base game (2026-11-20, docs/mixed-pipes.md#throughput).
     "vent-duty",
+    # A Fertilizer Synthesizer reading its emission from the game's data, base game (2026-11-25, docs/playtest-1.13.7.md).
+    "building-emitter",
     # Spaced Out!: WindowsPlayer under Proton on the recorded revisions, source plus cold/menu loads
     # (docs/dlc-compatibility.md; docs/spaced-out-private-playtest.md; docs/release-candidate-2026-10-30.md).
     "spaced-out-worlds", "spaced-out-rocket", "spaced-out-rocket-ports", "spaced-out-input-flush", "spaced-out-rocket-retire",

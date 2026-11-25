@@ -38,6 +38,9 @@ namespace MixedAtmospheres.Oni
         // The game time of the sim step in progress; zero-time steps (saves,
         // restores, startup) are never budgeted.
         internal static float StepSeconds { get; set; }
+        // The game's sim steps with positive time so far: each is followed by one
+        // round of the game's 200 ms components, spread over the next sub ticks.
+        internal static long PositiveSteps { get; set; }
         internal static bool CanRunLifecycle=>stepping==0;
         internal static void ExitStep() { if (stepping > 0) --stepping; }
 
@@ -261,7 +264,7 @@ namespace MixedAtmospheres.Oni
     [HarmonyPatch(typeof(Game), "StepTheSim")]
     internal static class ColonySaveStepPatch
     {
-        private static void Prefix(float __0) { ColonyPipeSave.TryRestore(); ColonySaveBarrier.StepSeconds = __0; ColonySaveBarrier.EnterStep(); ColonyFault.Inject("sim-step"); }
+        private static void Prefix(float __0) { ColonyPipeSave.TryRestore(); ColonySaveBarrier.StepSeconds = __0; if (__0 > 0) ++ColonySaveBarrier.PositiveSteps; ColonySaveBarrier.EnterStep(); ColonyFault.Inject("sim-step"); }
         // The last net: any exception escaping the game's sim step while the
         // owner runs faults it (ColonyFault) instead of stopping every step.
         private static Exception? Finalizer(Exception? __exception)

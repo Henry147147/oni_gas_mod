@@ -124,6 +124,8 @@ LINUX_EXTRA_BATCHES = (
     ("pipe-small-heat-save", 0, (), {}),
     ("germ-oracle", 0, (), {"MA_COLONY_GERM_ORACLE": "1"}),
     ("full-colony-base", 0, (), {}),
+    # A building that reads its own emission back from the game's data (docs/playtest-1.13.7.md).
+    ("building-emitter", 0, (), {}),
 )
 # In-game scenarios that no Linux batch runs, and why.
 UNTIERED_SCENARIOS = {

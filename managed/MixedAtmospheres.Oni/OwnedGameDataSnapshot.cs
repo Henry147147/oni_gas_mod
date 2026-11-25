@@ -261,6 +261,35 @@ namespace MixedAtmospheres.Oni
                 ReplaceCombinedBuffer(index, allocations[index], lengths[index], (IntPtr)pointer, events.Length);
         }
 
+        // A handle-indexed status table (ONI indexes it by a sim handle's low
+        // 24 bits) with at least `count` records: the copied records stay and
+        // the added ones are zero. Returns the published records.
+        private static IntPtr zeroRecords; private static long zeroRecordBytes;
+        internal Span<T> StatusTable<T>(SnapshotEventChannel eventChannel, int count) where T : unmanaged
+        {
+            RequireOpen();
+            var index = FindChannel(EventPointerField(eventChannel));
+            var channel = Channels[index];
+            if (channel.ElementType != typeof(T) || !RetainedStatusTable(channel.PointerField)) throw new ArgumentException("Not a status table of this record type: " + eventChannel);
+            if (count > MaximumCells * 8L) throw new InvalidDataException("Too many snapshot status records.");
+            var added = count - lengths[index];
+            if (added > 0)
+            {
+                var bytes = (long)added * channel.Stride;
+                if (CapturedBytes + bytes > MaximumOwnedBytes) throw new InvalidDataException("Snapshot exceeds the owned-buffer limit.");
+                if (bytes > zeroRecordBytes)
+                {
+                    var size = Math.Max(bytes, Math.Max(zeroRecordBytes * 2, 4096));
+                    var block = Marshal.AllocHGlobal((IntPtr)size);
+                    new Span<byte>((void*)block, checked((int)size)).Clear();
+                    if (zeroRecords != IntPtr.Zero) Marshal.FreeHGlobal(zeroRecords);
+                    zeroRecords = block; zeroRecordBytes = size;
+                }
+                ReplaceCombinedBuffer(index, allocations[index], lengths[index], zeroRecords, added);
+            }
+            return new Span<T>((void*)allocations[index], lengths[index]);
+        }
+
         internal static bool HasTransientEvents(Sim.GameDataUpdate* source)
         {
             if(source==null) throw new ArgumentNullException(nameof(source));

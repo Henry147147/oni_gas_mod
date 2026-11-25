@@ -643,6 +643,31 @@ internal static unsafe class Program
             copy.ClearEventsForFault();
             Check(copy.Pointer->elementIdx[1] == next && copy.Pointer->numSubstanceChangeInfo == 0);
         });
+        Test("a status table grows to an owned handle's index and keeps the copied records", () =>
+        {
+            using var source = new NativeFixture();
+            using var copy = OwnedGameDataSnapshot.Capture(source.Pointer, 3, 2);
+            var count = copy.Pointer->numEmittedMassEntries; Check(count > 0);
+            var before = new ReadOnlySpan<byte>(copy.Pointer->emittedMassEntries, count * sizeof(Sim.EmittedMassInfo)).ToArray();
+            var same = copy.StatusTable<Sim.EmittedMassInfo>(SnapshotEventChannel.EmittedMassEntries, count);
+            Check(same.Length == count && copy.Pointer->numEmittedMassEntries == count);
+            var grown = copy.StatusTable<Sim.EmittedMassInfo>(SnapshotEventChannel.EmittedMassEntries, count + 5000);
+            Check(grown.Length == count + 5000 && copy.Pointer->numEmittedMassEntries == count + 5000 && copy.Pointer->emittedMassEntries != null);
+            Check(new ReadOnlySpan<byte>(copy.Pointer->emittedMassEntries, before.Length).SequenceEqual(before));
+            for (var i = count; i < grown.Length; ++i) Check(grown[i].mass == 0 && grown[i].elemIdx == 0 && grown[i].diseaseCount == 0);
+            grown[count + 4999] = new Sim.EmittedMassInfo { elemIdx = 7, mass = .002f, temperature = 349.15f, diseaseIdx = byte.MaxValue };
+            Check(copy.Pointer->emittedMassEntries[count + 4999].mass == .002f && copy.Pointer->emittedMassEntries[count + 4999].elemIdx == 7);
+            // A smaller request never shortens the table.
+            Check(copy.StatusTable<Sim.EmittedMassInfo>(SnapshotEventChannel.EmittedMassEntries, 1).Length == count + 5000);
+            // ONI's own table is a null address while it runs no emitter.
+            source.Pointer->numEmittedMassEntries = 0; source.Pointer->emittedMassEntries = null;
+            using var empty = OwnedGameDataSnapshot.Capture(source.Pointer, 3, 2);
+            Check(empty.Pointer->emittedMassEntries == null && empty.Pointer->numEmittedMassEntries == 0);
+            var created = empty.StatusTable<Sim.EmittedMassInfo>(SnapshotEventChannel.EmittedMassEntries, 3);
+            Check(created.Length == 3 && empty.Pointer->emittedMassEntries != null && empty.Pointer->numEmittedMassEntries == 3 && created[2].mass == 0);
+            Reject(() => copy.StatusTable<Sim.MassConsumedCallback>(SnapshotEventChannel.MassConsumedCallbacks, 1));
+            Reject(() => copy.StatusTable<int>(SnapshotEventChannel.EmittedMassEntries, 1));
+        });
         Test("fault freeze retains physical buffers and status tables without replaying callbacks", () =>
         {
             using var source = new NativeFixture();

@@ -109,6 +109,7 @@ namespace MixedAtmospheres.Oni
                     case "space-heater": SpaceHeater(frame); break;
                     case "bottle-emptier": BottleEmptier(frame); break;
                     case "gas-generator": GasGenerator(frame); break;
+                    case "building-emitter": BuildingEmitter(frame); break;
                     case "germs": Germs(frame); break;
                     case "world-germs": WorldGerms(frame); break;
                     case "germ-oracle": GermOracle(frame); break;

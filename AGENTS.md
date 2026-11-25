@@ -58,6 +58,13 @@ few that your task touches, starting here.
   `publish/update-1.13.0` and `releases/1.13.0`; every release step has
   passed ([what ran](docs/playtest-1.13.0.md#staged-package)) and the upload
   waits for the user's go-ahead.
+  [1.13.7](docs/playtest-1.13.7.md) is 1.13.6 with the fix for the user's
+  report of 2026-11-25 on it: a colony with a Fertilizer Synthesizer (or
+  another building that emits a gas through `BuildingElementEmitter`) threw an
+  exception on every frame, because the game reads that emitter's record from
+  [a table the owner did not publish](docs/colony-owner.md#the-emitted-mass-table).
+  It is staged on the private share; its release chain continues where
+  1.13.6's stood, and its upload waits for the user's go-ahead.
   [1.13.6](docs/playtest-1.13.6.md) is 1.13.5 with clearer refusals (user
   request 2026-11-25): a player on a supported build was told that the mod
   "does not support this version of Oxygen Not Included" because other mods
@@ -65,9 +72,8 @@ few that your task touches, starting here.
   ([why a patch reads as a change](docs/game-update-resilience.md#other-mods)).
   Each cause now has its own notice; the conflict notice names the mods and
   where to report. Whether the mod should run beside such mods is an open
-  user decision. The user asked for it to be built at once and for the
-  release steps 1.13.5 had not yet run to be run on it (2026-11-25); its
-  upload waits for the user's go-ahead.
+  user decision. The user uploaded it to the Workshop on 2026-11-25, while
+  its release chain was running ([what had run](docs/playtest-1.13.6.md#staged-package)).
   [1.13.5](docs/playtest-1.13.5.md) is the version of the frame-rate round;
   the user uploaded it to the Workshop on 2026-11-24, while its release
   chain was running ([what had run](docs/playtest-1.13.5.md#staged-package)).
@@ -121,7 +127,7 @@ few that your task touches, starting here.
   [the 0.1.1 playtest review](docs/playtest-0.1.1-review.md).
   The `docs/handoff-codex-*.md` files are historical; continue on `main`.
 - [docs/workshop-upload.md](docs/workshop-upload.md): the Steam Workshop item,
-  what it serves (`python3 tools/workshop.py status`: 1.13.5, `993c3c3`, on
+  what it serves (`python3 tools/workshop.py status`: 1.13.6, `d63861d`, on
   2026-11-25) and the upload procedure. The tool only reads unless it is given
   `--execute` with the user's go-ahead for that version.
 - [docs/playtest-plan.md](docs/playtest-plan.md): the original first-playtest

@@ -1297,7 +1297,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/2b22a483bf7e51211008",
@@ -1527,7 +1527,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/3720d58e7945bbd263fc",
@@ -1991,7 +1991,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/4c08e870147c877e8142",
@@ -2452,7 +2452,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/6960db17cff9eaaeec78",
@@ -2576,7 +2576,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/70c6fa3f92ae20c74fe5",
@@ -2767,7 +2767,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/79d14e31af0ba7b7550f",
@@ -3177,7 +3177,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/8beb5e62fb7baebf33b0",
@@ -3327,7 +3327,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/90e2f9bdbe6cb68b3766",
@@ -3387,7 +3387,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/949d1f4a3c0e12968507",
@@ -3602,7 +3602,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/9e8d5d195a05b0a8662b",
@@ -3666,7 +3666,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/a03038f5a9b4a075fe81",
@@ -4473,7 +4473,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/c8a8fec69791457a1f5e",
@@ -4666,7 +4666,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "callsite/d4241d36e8f72d5e1cbb",
@@ -10515,7 +10515,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/AddElementEmitter",
@@ -10534,7 +10534,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/AddInContactBuildingToBuildingToBuildingHeatExchange",
@@ -10832,7 +10832,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/MassEmission",
@@ -10851,7 +10851,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/ModifyBackwallData",
@@ -11065,7 +11065,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/ModifyRadiationEmitter",
@@ -11305,7 +11305,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/RemoveElementEmitter",
@@ -11324,7 +11324,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/RemoveRadiationEmitter",
@@ -11402,7 +11402,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "message/SetInsulationValue",
@@ -11952,7 +11952,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "native-hook/copy-to-game",
@@ -12078,7 +12078,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "native-hook/emitter-dispatch",
@@ -12113,7 +12113,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "native-hook/end-frame",
@@ -59869,7 +59869,7 @@
         "managed/MixedAtmospheres.Oni/ColonyActors.cs",
         "native/src/oni_colony.cpp"
       ],
-      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
+      "playtest_check": "in-game scenarios `life-support`, `wheezewort`, `oxyfern`, `building-emitter` (docs/colony-owner.md#scenarios) pass with the owner's ledgers closed"
     },
     {
       "id": "system/fans-vents",

@@ -22,7 +22,7 @@ namespace MixedAtmospheres.Oni
         internal static int Contained { get; private set; }
         internal static void Reset()
         {
-            lock (gate) { reason = ""; Contained = 0; injected = ""; Rehearse = false; Rehearsed.Clear(); InjectedFault = false; }
+            lock (gate) { reason = ""; Contained = 0; injected = ""; Rehearse = false; Rehearsed.Clear(); InjectedFault = false; originsLogged.Clear(); }
         }
 
         internal static void Raise(string where, Exception error)
@@ -66,10 +66,27 @@ namespace MixedAtmospheres.Oni
             try
             {
                 if (error != null && !error.Data.Contains(OriginKey) && !string.IsNullOrEmpty(error.StackTrace))
-                    error.Data[OriginKey] = error.StackTrace;
+                {
+                    var trace = error.StackTrace;
+                    error.Data[OriginKey] = trace;
+                    LogOrigin(error, trace);
+                }
             }
             catch (Exception) { }
             return error;
+        }
+        // The game then reports the exception with the restarted trace, which
+        // names only the patched method. The first few different origins of a
+        // session are written to the log, so a player's log says where the
+        // failure began whether it is the mod's, the game's or another mod's.
+        private const int OriginLogLimit = 4;
+        private static readonly HashSet<string> originsLogged = new HashSet<string>();
+        private static void LogOrigin(Exception error, string trace)
+        {
+            if (error is Injected) return; // a control fault of the harness
+            lock (gate) { if (originsLogged.Count >= OriginLogLimit || !originsLogged.Add(trace)) return; }
+            Debug.LogWarning("[Mixed Atmospheres] An exception is leaving a game method the mod patches; the game's report of it names only that method. " +
+                error.GetType().Name + ": " + error.Message + "\n  first thrown at:\n" + trace);
         }
         internal static string Origin(Exception error)
         {

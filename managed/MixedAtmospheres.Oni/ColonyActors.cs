@@ -23,8 +23,9 @@ namespace MixedAtmospheres.Oni
     // within its radius: its element, or the whole gas or liquid mixture for an
     // any-gas or any-liquid consumer (pumps). The receipts return as ONI's
     // consumed-mass events for the handle. An emitter injects its rate × dt at
-    // its cell (ONI's emitMass is the output element's kg/s generation rate;
-    // its germs are counted per emission interval) unless the cell holds its
+    // its cell (ONI's emitMass and germ count are per emission interval: an
+    // ElementEmitter's interval is one second, a building emitter's 0.2 s)
+    // unless the cell holds its
     // maximum pressure (kg), and answers the blocked and unblocked callbacks
     // on each change.
     internal static unsafe class ColonyActors
@@ -42,6 +43,10 @@ namespace MixedAtmospheres.Oni
             public uint Kind, NativeIndex, Radius; public float Rate; // consumer
             public float Interval, Mass, Temperature, MaximumKg; public uint Disease; public int Germs; // emitter
             public int OnBlocked = -1, OnUnblocked = -1; public bool Blocked;
+            // ONI's emitted-mass table: what the emitter put out since the game's
+            // last positive step, and the record of the step before it, which
+            // the game's components are reading.
+            public float EmittedKg, EmittedGerms; public Sim.EmittedMassInfo Record; public int Slot;
             public string? Source; // what stands at the emitter's cell (a geyser, a building)
             // The registering component: a stable identity across saves.
             public SimComponent? Component; public ColonyCallbackIdentity? Identity;
@@ -109,6 +114,8 @@ namespace MixedAtmospheres.Oni
         private static readonly List<Sim.ComponentStateChangedMessage> replies = new List<Sim.ComponentStateChangedMessage>();
         private static readonly List<Sim.CallbackInfo> callbacks = new List<Sim.CallbackInfo>();
         private static int issued;
+        // The owned emitters, for the emitted-mass table (null after a change of membership).
+        private static List<Actor>? emitterTable; private static int emitterSlots; private static long emittedStep = -1;
         internal static int Consumers { get; private set; }
         internal static int Emitters { get; private set; }
         internal static int Native => native.Count + registering.Count;
@@ -121,8 +128,8 @@ namespace MixedAtmospheres.Oni
         internal static double DeliveredKg { get; private set; }
         internal static void Reset()
         {
-            registering.Clear(); native.Clear(); owned.Clear(); replies.Clear(); callbacks.Clear(); ordered=null; ++ActivityInputs; frameTransfers.Clear(); queueing = false;
-            issued = 0; Consumers = Emitters = 0; Queued = Delivered = 0; DeliveredKg = 0; SourceKg.Clear();
+            registering.Clear(); native.Clear(); owned.Clear(); replies.Clear(); callbacks.Clear(); ordered=null; emitterTable=null; ++ActivityInputs; frameTransfers.Clear(); queueing = false;
+            issued = 0; emittedStep = -1; Consumers = Emitters = 0; Queued = Delivered = 0; DeliveredKg = 0; SourceKg.Clear();
         }
 
         // The message layouts, from the game's own message structs.
@@ -191,7 +198,7 @@ namespace MixedAtmospheres.Oni
                         : new Actor { Emitter = true, MaximumKg = Float(payload, emitterPressure), OnBlocked = Int(payload, emitterBlocked), OnUnblocked = Int(payload, emitterUnblocked) };
                     actor.Component = RegisteringComponent(callback);
                     if (!running) { registering[callback] = actor; return false; }
-                    var handle = OwnedHandles + ++issued;
+                    var handle = OwnedHandles + NextIndex(message == AddEmitter);
                     Own(handle, actor);
                     replies.Add(new Sim.ComponentStateChangedMessage { callbackIdx = callback, simHandle = handle });
                     return true;
@@ -216,7 +223,7 @@ namespace MixedAtmospheres.Oni
                 default: // RemoveConsumer, RemoveEmitter
                 {
                     var handle = Int(payload, removeHandle);
-                    if (owned.TryGetValue(handle, out var actor)) { owned.Remove(handle); ordered = null; if (actor.Emitter) --Emitters; else --Consumers; return true; }
+                    if (owned.TryGetValue(handle, out var actor)) { owned.Remove(handle); ordered = null; emitterTable = null; if (actor.Emitter) --Emitters; else --Consumers; return true; }
                     native.Remove(handle); return false;
                 }
             }
@@ -232,7 +239,25 @@ namespace MixedAtmospheres.Oni
                 ElementConsumer.Configuration.AllLiquid => OniNativeColony.ExtractLiquid,
                 _ => OniNativeColony.Extract
             };
-        private static void Own(int handle, Actor actor) { owned[handle] = actor; ordered = null; if (actor.Emitter) ++Emitters; else ++Consumers; }
+        private static void Own(int handle, Actor actor) { owned[handle] = actor; ordered = null; emitterTable = null; if (actor.Emitter) ++Emitters; else ++Consumers; }
+        // ONI finds an emitter's record in the emitted-mass table by its
+        // handle's low 24 bits (Sim.GetHandleIndex). An emitter the owner took
+        // from ONI keeps its native handle, so the owner gives no emitter of
+        // its own an index one of those still uses.
+        private const int HandleIndexMask = 0xffffff;
+        private static int NextIndex(bool emitter)
+        {
+            ++issued;
+            if (!emitter) return issued;
+            for (var searching = true; searching;)
+            {
+                searching = false;
+                foreach (var map in new[] { owned, native })
+                    foreach (var entry in map)
+                        if (entry.Value.Emitter && (entry.Key & ~HandleIndexMask) != OwnedHandles && (entry.Key & HandleIndexMask) == issued) { ++issued; searching = true; }
+            }
+            return issued;
+        }
         // A SimComponent registers through simComponentCallbackManager; its
         // callback names the component while the registration message is sent.
         private static SimComponent? RegisteringComponent(int callback)
@@ -347,13 +372,18 @@ namespace MixedAtmospheres.Oni
                     if (callback != -1) callbacks.Add(new Sim.CallbackInfo { callbackIdx = callback });
                 }
                 if (blocked) continue;
+                // ONI's emitter puts out its mass and its germs once per
+                // interval (a Fertilizer Synthesizer: 2 g every 0.2 s; an
+                // ElementEmitter's interval is one second).
                 var germs = a.Disease != 0 && a.Interval > 0 ? a.Germs * seconds / a.Interval : 0;
+                var emitted = a.Interval > 0 ? a.Mass * seconds / a.Interval : a.Mass * seconds;
                 a.Source ??= SourceOf(a.Cell);
                 if (!SourceKg.TryGetValue(a.Source, out var byElement)) SourceKg[a.Source] = byElement = new SortedDictionary<string, double>();
                 var id = ElementId(element);
-                byElement[id] = (byElement.TryGetValue(id, out var kg) ? kg : 0) + a.Mass * seconds;
+                byElement[id] = (byElement.TryGetValue(id, out var kg) ? kg : 0) + emitted;
                 list.Add(new OniNativeColony.Transfer { PublicCell = (uint)a.Cell, NativeIndex = a.NativeIndex, Kind = OniNativeColony.Inject, Callback = -1,
-                    MassKg = a.Mass * seconds, TemperatureK = a.Temperature, Disease = germs > 0 ? a.Disease : 0, DiseaseCount = germs });
+                    MassKg = emitted, TemperatureK = a.Temperature, Disease = germs > 0 ? a.Disease : 0, DiseaseCount = germs });
+                a.EmittedKg += emitted; if (germs > 0) a.EmittedGerms += germs;
             }
             if (list.Count == 0) return;
             if (pipeBatch == null)
@@ -373,6 +403,44 @@ namespace MixedAtmospheres.Oni
         {
             if (replies.Count != 0) { copy.AppendEvents<Sim.ComponentStateChangedMessage>(SnapshotEventChannel.ComponentStateChangedMessages, replies.ToArray()); replies.Clear(); }
             if (callbacks.Count != 0) { copy.AppendEvents<Sim.CallbackInfo>(SnapshotEventChannel.CallbackInfo, callbacks.ToArray()); callbacks.Clear(); }
+            PublishEmitted(copy);
+        }
+        // ONI's emitted-mass table: one record per emitter handle index, what
+        // the emitter put out in the last frame ONI processed. Buildings that
+        // emit a gas directly (the Fertilizer Synthesizer's natural gas, the
+        // Blastshot Maker's carbon dioxide) read their record once per 200 ms
+        // tick, in one of the sub ticks after the step, for their emission
+        // rate and the daily report. ONI's own table has no record of an
+        // emitter the owner runs: it is empty, a null address, when ONI runs
+        // none. Every publication carries the owned emitters' records. They
+        // change at the first publication of each positive game step, to what
+        // the emitters queued since the one before, and stay until the next.
+        private static void PublishEmitted(OwnedGameDataSnapshot copy)
+        {
+            if (Emitters == 0) return;
+            if (emitterTable == null)
+            {
+                emitterTable = new List<Actor>(Emitters); emitterSlots = 0;
+                foreach (var entry in owned)
+                {
+                    if (!entry.Value.Emitter) continue;
+                    entry.Value.Slot = entry.Key & HandleIndexMask; emitterSlots = Math.Max(emitterSlots, entry.Value.Slot + 1);
+                    emitterTable.Add(entry.Value);
+                }
+            }
+            var table = copy.StatusTable<Sim.EmittedMassInfo>(SnapshotEventChannel.EmittedMassEntries, emitterSlots);
+            var next = emittedStep != ColonySaveBarrier.PositiveSteps; emittedStep = ColonySaveBarrier.PositiveSteps;
+            foreach (var a in emitterTable)
+            {
+                if (next)
+                {
+                    var germs = a.EmittedGerms >= int.MaxValue ? int.MaxValue : (int)a.EmittedGerms;
+                    a.Record = new Sim.EmittedMassInfo { elemIdx = (ushort)Math.Min(a.NativeIndex, ushort.MaxValue), mass = a.EmittedKg, temperature = a.EmittedKg > 0 ? a.Temperature : 0,
+                        diseaseIdx = germs > 0 ? OniNativeColony.DiseaseIdx(a.Disease) : byte.MaxValue, diseaseCount = germs };
+                    a.EmittedKg = 0; a.EmittedGerms = 0;
+                }
+                table[a.Slot] = a.Record;
+            }
         }
 
         internal static bool IsConsumerReceipt(in OniNativeColony.Receipt receipt) => (receipt.Kind & OniNativeColony.ConsumerFlag) != 0;
