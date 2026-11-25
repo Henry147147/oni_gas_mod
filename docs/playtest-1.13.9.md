@@ -103,7 +103,9 @@ Left as they are, and listed for the user:
 | The same, base game content: 352 buildings | 336 built, 15 base-game rocket modules not placed by any pass yet, 1 taller than the room |
 | Rocket pass under ONI's own simulation | 45 of 45 built: 8 engines, 23 other modules, 14 interior buildings; nothing logged |
 | Critters, plants and geysers under ONI's own simulation | 135 of 135 spawned (78 critters, 27 plants, 30 geysers); 7 log or leave (the baseline) |
-| Every building under an earlier form of the test, this version's owner, Spaced Out! parts 1 and 2 (215 buildings) | no building differs from ONI in outcome, log or components; no fault; ledgers closed |
+| Every building under this version's owner, Spaced Out! content, four parts | 384 built (101, 96, 100, 87), nothing beyond the baseline, no fault, ledgers closed (at most 2.1e-16 mass, 7.4e-16 energy) |
+| Rocket pass under this version's owner | 45 of 45 built, nothing logged, no fault, ledgers closed |
+| Critters, plants and geysers under this version's owner, three parts | 135 of 135 spawned, nothing beyond the baseline, no fault, ledgers closed |
 | The actor count on the user's Cycle 130 colony | 42 consumers, 18 emitters and 1 building emitter in the game; 42 and 19 owned; no mismatch |
 | A second model's review of the two fixes | the Sanishell fix would have cleaned twice in a colony of the legacy germ mode, and under-applied an interval shorter than a tick: both corrected before this version was cut |
 | `tools/build.py` suites; Python suites | pass; 605 tests |
@@ -122,9 +124,24 @@ version.
 
 ## Staged package
 
-The builds, the package for the three game builds, five of the user's share
-saves with the seven other mods on the release folder, the mod-off control,
-the latest save on the Windows build, the Workshop dry run, the load matrix
-and the patch tier with the batches of the two fixes run on this version's
-revision before the upload. The passes of the new tests under the owner run
-beside them. Results are recorded here once they have run.
+`6458df3` is staged on the private share as `publish/update-1.13.9` and
+`releases/1.13.9` since 2026-11-25 19:17 UTC, and was uploaded to the
+Workshop at 20:02 UTC with `tools/workshop.py`
+([the procedure](workshop-upload.md#uploading-a-version)), at the user's
+request of that day.
+
+| Step, on `6458df3`, before the upload | Result |
+| --- | --- |
+| Release builds (Linux for Ubuntu 22.04, Windows), package for game builds 744825, 763796 and 764025, archive verification | passed |
+| Five of the user's share saves (Cycles 33, 44, 70, 128, 130) on the release folder with the seven other mods, Linux game 764025: load, 300 ticks at speed 3, save | 5 of 5 |
+| The mod off (stand-in mod), the main menu resumes the Cycle 128 save, release folder | refused before loading |
+| The Cycle 130 save with the seven mods, Windows game 764025 under Proton, release folder | loads, runs and saves; the runner's verdict is a pass under its 1e-8 bound |
+| Workshop dry run | passed; nothing was sent |
+| Load matrix (the three game builds, Linux and Windows under Proton) | 6 of 6 |
+| Patch tier with the batches of `building-emitter` and of `message-edges,germ-cleaner` | 8 of 8 |
+
+After the upload, on the same revision: the user's other ten share saves,
+the whole release tier (with its 13 new games, `linux-resume-refused` and
+the steps [1.13.8 did not run](playtest-1.13.8.md#staged-package)), the
+base-game building parts under the owner and a pass for the base game's own
+rocket modules. Their results are recorded here once they have run.
