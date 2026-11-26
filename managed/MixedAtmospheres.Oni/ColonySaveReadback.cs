@@ -40,6 +40,21 @@ namespace MixedAtmospheres.Oni
             catch (Exception) { return null; }
         }
 
+        // A save file that holds its header and directory but no body yet:
+        // what Moono's background-save leaves in the save until its write is
+        // moved over it (PendingSaveWrite). False for anything else.
+        internal static bool HeaderOnly(byte[] file)
+        {
+            try
+            {
+                var source = SavedImage.CopyFrom(file);
+                var count = BinaryPrimitives.ReadInt32LittleEndian(source.CopySlice(4, 4));
+                OwnedReservoirLoadHeaderV1.InspectLayoutHeader(source.CopySlice(0, 16 + count), allowUncompressed: true);
+                return SavedDirectoryInspector.InspectPrefix(source, 16 + count, new SavedInspectionLimits()).Range.End >= source.Length;
+            }
+            catch (Exception) { return false; }
+        }
+
         private static bool Envelope(ReadOnlySpan<byte> data) => data.Length >= 8 && data.Slice(0, 8).SequenceEqual("MACOLONY"u8);
 
         internal static ColonySaveReadback Verify(byte[] written, int expectedBodyBytes, string expectedBodySha256,

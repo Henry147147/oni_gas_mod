@@ -842,20 +842,30 @@ def root_binds(mountinfo: str | None = None, root: Path = Path("/")) -> list[str
 
 
 MOONO_TWEAK_SETS = ("none", "all", "exact")
+# --moono-tweaks default: no --game-tweak at all, so Moono's own defaults (what players run) apply.
+MOONO_DEFAULT_TWEAKS = "default"
 MOONO_RENDERERS = ("auto", "vulkan", "opengl")
 # Moono's own variables a test run pins (local/moono docs: DEVELOPMENT.md, INSTALL-MODES.md): no
 # update check (it would ask GitHub), no crash window and no message box or desktop dialog to wait on.
 MOONO_ENVIRONMENT = {"ONI_UPDATE_RELEASES_URL": "none", "ONI_MOONO_CRASH_DIALOG": "off", "ONI_HOST_NO_DIALOG": "1"}
 MOONO_STARTING = re.compile(r"^\[engine\] Moono starting: commit=(\S+)", re.M)
 MOONO_RENDERER = re.compile(r"^\[engine\] renderer: ([^(;]+?) \(", re.M)
+# Program.cs logs the effective options: "option game tweaks on (default): a, b" and "... off (...)" without
+# --game-tweak, one line per state and source; "option game tweaks from the command line (--game-tweak X): a, b|none" with it.
+MOONO_TWEAKS_STATE = re.compile(r"^\[engine\] option game tweaks (on|off) \(([^)]*)\): (.*)$", re.M)
+MOONO_TWEAKS_COMMAND_LINE = re.compile(r"^\[engine\] option game tweaks from the command line \([^)]*\): (.*)$", re.M)
 
 
 def moono_tweak_arguments(tweaks: str) -> list[str]:
-    """--moono-tweaks none|all|exact|NAME,...: Moono's --game-tweak, repeated (any of them sets the whole set)."""
+    """--moono-tweaks none|all|exact|default|NAME,...: Moono's --game-tweak, repeated (any of them sets the whole
+    set); `default` passes none, so Moono's own defaults (and its settings file, which the harness writes without
+    tweaks) decide."""
+    if tweaks == MOONO_DEFAULT_TWEAKS:
+        return []
     names = [name.strip() for name in tweaks.split(",") if name.strip()]
-    if not names or (len(names) > 1 and any(name in MOONO_TWEAK_SETS for name in names)) or \
+    if not names or (len(names) > 1 and any(name in (*MOONO_TWEAK_SETS, MOONO_DEFAULT_TWEAKS) for name in names)) or \
             any(not re.fullmatch(r"-?[A-Za-z0-9][A-Za-z0-9_.-]*", name) for name in names):
-        raise ValueError("--moono-tweaks takes none, all, exact or a comma-separated list of tweak names")
+        raise ValueError("--moono-tweaks takes none, all, exact, default or a comma-separated list of tweak names")
     return [argument for name in names for argument in ("--game-tweak", name)]
 
 
@@ -938,10 +948,32 @@ def verify_moono_player(player: Path) -> Path:
     return player
 
 
+def moono_effective_tweaks(log: str) -> dict | None:
+    """The game tweaks a Moono run had on and off, from its log's option lines; None when the log has none.
+
+    With --game-tweak the log names only those on (`off` is then None: every other tweak)."""
+    def names(text: str) -> list[str]:
+        return [] if text.strip() == "none" else [name.strip() for name in text.split(",") if name.strip()]
+    command_line = MOONO_TWEAKS_COMMAND_LINE.search(log)
+    if command_line:
+        return {"source": "command line", "on": sorted(names(command_line.group(1))), "off": None}
+    states = MOONO_TWEAKS_STATE.findall(log)
+    if not states:
+        return None
+    effective = {"on": set(), "off": set()}
+    sources = set()
+    for state, source, listed in states:
+        effective[state].update(names(listed))
+        sources.add(source)
+    return {"source": ", ".join(sorted(sources)), "on": sorted(effective["on"]), "off": sorted(effective["off"])}
+
+
 def moono_log_facts(log: str) -> dict:
-    """What a Moono run's Player.log says of the player: its commit (first line) and the renderer it chose."""
+    """What a Moono run's Player.log says of the player: its commit (first line), the renderer it chose and
+    the game tweaks it had on and off."""
     started, renderer = MOONO_STARTING.search(log), MOONO_RENDERER.search(log)
-    return {"commit": started.group(1) if started else None, "renderer": renderer.group(1).strip() if renderer else None}
+    return {"commit": started.group(1) if started else None, "renderer": renderer.group(1).strip() if renderer else None,
+            "tweaks_effective": moono_effective_tweaks(log)}
 
 
 def sandbox_command(home: Path, state: Path, output: Path, game: Path, thin: Path, keep_open: bool,
@@ -1656,8 +1688,9 @@ def main() -> int:
                            "a stand-in that removed its patches keeps it off (--extra-mod-first, MA_OTHER_MOD_REMOVES_PATCHES=1)")
     play.add_argument("--moono", type=Path, metavar="PLAYER_DIR",
                       help="Run the game through this Moono player folder (OniMoono) instead of Unity's player, in the same sandbox")
-    play.add_argument("--moono-tweaks", default="none", metavar="none|all|exact|NAME,...",
-                      help="With --moono: its game tweaks (default none, the test default of Moono's own scripts)")
+    play.add_argument("--moono-tweaks", default="none", metavar="none|all|exact|default|NAME,...",
+                      help="With --moono: its game tweaks (default none, the test default of Moono's own scripts; "
+                      "default: no --game-tweak, so Moono's own defaults apply, as players run it)")
     play.add_argument("--moono-renderer", choices=MOONO_RENDERERS,
                       help="With --moono: its renderer (default: Moono chooses, Vulkan first on a discrete GPU)")
     play.add_argument("--moono-headless", action="store_true",

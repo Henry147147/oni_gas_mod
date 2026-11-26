@@ -2279,7 +2279,10 @@ class MoonoTests(unittest.TestCase):
         self.assertEqual(runner.moono_tweak_arguments("none"), ["--game-tweak", "none"])
         self.assertEqual(runner.moono_tweak_arguments("exact"), ["--game-tweak", "exact"])
         self.assertEqual(runner.moono_tweak_arguments("FastSave,-Splash"), ["--game-tweak", "FastSave", "--game-tweak", "-Splash"])
-        for wrong in ("", "none,all", "all,FastSave", "a b", "--frames"):
+        # Players' defaults: no --game-tweak at all.
+        self.assertEqual(runner.moono_tweak_arguments("default"), [])
+        self.assertEqual(runner.moono_options("default")[:2], ["--splash", "none"])
+        for wrong in ("", "none,all", "all,FastSave", "a b", "--frames", "default,FastSave"):
             with self.assertRaises(ValueError, msg=wrong):
                 runner.moono_tweak_arguments(wrong)
 
@@ -2332,8 +2335,21 @@ class MoonoTests(unittest.TestCase):
                 runner.verify_moono_player(Path(temporary))
         log = ("[engine] Moono starting: commit=0123abcd exe=/p/OniMoono game=/g .NET=10.0.0\n[engine] launch: from Steam's launch options (-- %command%)\n"
                "[engine] renderer: Vulkan (auto, settings default); NVIDIA GeForce RTX 5090 is not integrated, so Vulkan first\n")
-        self.assertEqual(runner.moono_log_facts(log), {"commit": "0123abcd", "renderer": "Vulkan"})
-        self.assertEqual(runner.moono_log_facts("Renderer: llvmpipe\n"), {"commit": None, "renderer": None})
+        self.assertEqual(runner.moono_log_facts(log), {"commit": "0123abcd", "renderer": "Vulkan", "tweaks_effective": None})
+        self.assertEqual(runner.moono_log_facts("Renderer: llvmpipe\n"), {"commit": None, "renderer": None, "tweaks_effective": None})
+
+    def test_the_effective_tweak_sets_come_from_moonos_option_lines(self):
+        defaults = ("[engine] option game tweaks on (default): fast-jobs, background-save\n"
+                    "[engine] option game tweaks on (the settings file): fast-sublimation\n"
+                    "[engine] option game tweaks off (default): sim-step-pace, low-fps-timing\n"
+                    "[engine] option splash none (the command line)\n")
+        self.assertEqual(runner.moono_effective_tweaks(defaults), {"source": "default, the settings file",
+                         "on": ["background-save", "fast-jobs", "fast-sublimation"], "off": ["low-fps-timing", "sim-step-pace"]})
+        none = "[engine] option game tweaks from the command line (--game-tweak none): none\n"
+        self.assertEqual(runner.moono_effective_tweaks(none), {"source": "command line", "on": [], "off": None})
+        named = "[engine] option game tweaks from the command line (--game-tweak all --game-tweak -fast-jobs): b, a\n"
+        self.assertEqual(runner.moono_effective_tweaks(named)["on"], ["a", "b"])
+        self.assertIsNone(runner.moono_effective_tweaks("[engine] option splash none (default)\n"))
 
     def test_a_display_without_a_connected_output_is_refused_for_moono(self):
         xrandr = ("Screen 0: minimum 8 x 8, current 1920 x 1080\nHDMI-0 disconnected primary (normal left)\nDP-0 disconnected (normal)\n")

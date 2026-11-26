@@ -191,11 +191,17 @@ namespace MixedAtmospheres.Oni
                 "The save has not been changed.\n\n" + reason;
         }
 
+        // Whether a save's background write is still in flight. On Moono a
+        // write queued behind the one in flight gets its "<save>.writing"
+        // only when it starts; until then the save holds its header alone.
+        internal static bool SaveWritePending(string save) =>
+            PendingSaveWrite.Writing(save) || MoonoHost.IsMoono && ColonySaveReadback.HeaderOnly(File.ReadAllBytes(save));
+
         // Null once no background write of the save is pending (Moono,
         // PendingSaveWrite), after waiting for one; otherwise the refusal.
         internal static string? UnfinishedSave(string filename)
         {
-            if (PendingSaveWrite.Wait(filename, out var waited))
+            if (PendingSaveWrite.Wait(filename, out var waited, pending: SaveWritePending))
             {
                 if (waited > 0) UnityEngine.Debug.Log($"[Mixed Atmospheres] Waited {waited} ms for the background write of {Path.GetFileName(filename)} to finish before reading it.");
                 return null;

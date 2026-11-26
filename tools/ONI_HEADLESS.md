@@ -260,6 +260,21 @@ second, and a frame's interval exceeds its solver time by about 40 ms (frames
 mode. The release player for game build 764025 is unpacked at
 `local/moono/release/linux/oni-moono/player` (third-party, never in git).
 
+- **Getting a release.** `python3 tools/moono.py fetch [--tag 2026.11.26.02] [--windows]`
+  downloads a release from Moono's GitHub releases into `local/moono/release` of the main
+  checkout (also when run from a worktree; `--dest DIR` elsewhere):
+  - the linux-x64 archive, and with `--windows` the windows-x64 one;
+  - the `SHA256SUMS` of each.
+
+  Each archive must match the SHA-256 GitHub lists for it. The Linux player is unpacked to
+  `local/moono/release/linux/oni-moono` and replaces an earlier copy only once its contents
+  are checked. Every file must match `SHA256SUMS`, with none missing and none extra.
+  Entries outside the archive's `oni-moono/` folder, links and devices are refused. The
+  Windows archive is checked member by member and left packed. The tool prints the
+  release, its commit and the player folder's own `MoonoRelease`. Requests carry a
+  generic User-Agent and nothing about the user. The release JSON is kept beside the
+  archives as `release-<version>.json`.
+
 - **Launch.** In the same sandbox, in Steam's form:
   `PLAYER_DIR/OniMoono OPTIONS -- <thin copy>/OxygenNotIncluded <the usual arguments>`.
   The game folder is the thin copy's. Moono reads `-screen-width`, `-screen-height`,
@@ -283,6 +298,9 @@ mode. The release player for game build 764025 is unpacked at
   `--game-tweak none --splash none --log-paths full`, plus `--crash-dialog off`
   and `--no-tweaks-menu`, which keeps the main menu as the original's.
   - `--moono-tweaks none|all|exact|NAME,...` sets the tweaks (repeated `--game-tweak`).
+    `--moono-tweaks default` passes no `--game-tweak`, so Moono's own defaults apply, as
+    players run it. The harness's settings file names no tweaks. The acceptance suite's
+    `moono` steps use it ([with and without Moono](../docs/performance-acceptance.md#moono)).
   - `--moono-renderer auto|vulkan|opengl` sets the renderer. By default Moono
     chooses, Vulkan first on a discrete GPU.
   - `--moono-tweaks-menu` keeps its menu button.
@@ -305,7 +323,9 @@ mode. The release player for game build 764025 is unpacked at
 - **What result.json records.** `player` (`moono` or `unity`), `moono`, and
   `moono_player`: its folder, its release (OniMoono.dll's `MoonoRelease`),
   the commit and renderer from the log, the tweak set, the renderer asked
-  for and the options passed. Classification strings are the same for both
+  for and the options passed. `moono_player.tweaks_effective` gives the tweaks Moono
+  had on and off, from the log's `option game tweaks on|off (SOURCE): …` lines. With
+  `--game-tweak` only those on are listed (`off: null`). Classification strings are the same for both
   players, so a result is read by these fields, never by its status.
 - **The mod.** It is staged in `mods/Dev` as with Unity's player. Moono's
   mod sweeps install mods as local mods because the game itself applies

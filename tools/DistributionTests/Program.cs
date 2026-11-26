@@ -145,13 +145,23 @@ static class Program
         Check(!ModAdmission.GameFiles(764025, new[] { "x" }).Notice.Contains("Moono"), "no Moono wording on Unity's player");
 
         // Background save: a save with "<save>.writing" beside it is read only once that is gone.
-        var present = new HashSet<string> { "/s/Colony.sav.writing" };
+        var present = new HashSet<string> { "/s/Colony.sav" };
         var sleeps = 0;
         Check(PendingSaveWrite.Wait("/s/Other.sav", out var none, 1000, present.Contains, _ => ++sleeps) && none == 0 && sleeps == 0, "no pending write, no wait");
         Check(PendingSaveWrite.Wait("/s/Colony.sav", out _, 10_000, path => { if (sleeps == 3) present.Clear(); return present.Contains(path); }, _ => ++sleeps) && sleeps == 3,
             "waits until the write is moved over the save");
-        present.Add("/s/Colony.sav.writing");
+        present.Add("/s/Colony.sav");
         Check(!PendingSaveWrite.Wait("/s/Colony.sav", out _, 0, present.Contains, _ => { }), "a write that never finishes refuses after the bound");
+        var folder = Directory.CreateTempSubdirectory("ma-pending-");
+        try
+        {
+            var save = Path.Combine(folder.FullName, "Colony.sav");
+            File.WriteAllBytes(save, new byte[] { 1 });
+            Check(!PendingSaveWrite.Writing(save), "no .writing file, no write in flight");
+            File.WriteAllBytes(save + PendingSaveWrite.Suffix, new byte[] { 1 });
+            Check(PendingSaveWrite.Writing(save), "a .writing file beside the save is a write in flight");
+        }
+        finally { folder.Delete(true); }
         var unfinished = ModAdmission.UnfinishedSaveRefusal("/s/Colony.sav");
         Check(unfinished.Contains("still being written (Colony.sav.writing is beside it)") && unfinished.Contains("The save has not been changed.") &&
             unfinished.Contains("load the colony again"), unfinished);
@@ -278,8 +288,16 @@ static class Program
         var checkedSaves = 0;
         foreach (var path in saves.Where(File.Exists))
         {
-            var sim = ColonySaveReadback.SimSection(File.ReadAllBytes(path));
+            var bytes = File.ReadAllBytes(path);
+            var sim = ColonySaveReadback.SimSection(bytes);
             Check(sim != null && ColonySaveEnvelope.HasMagic(sim), "real save holds a Mixed Atmospheres envelope: " + path);
+            // What Moono's background save leaves in the file before its write lands: the
+            // header and directory, no body (PendingSaveWrite). A whole save is not that.
+            Check(!ColonySaveReadback.HeaderOnly(bytes), "a complete save is not header-only: " + path);
+            var bodyStart = SavedDirectoryInspector.InspectPrefix(SavedImage.CopyFrom(bytes), 16 + BitConverter.ToInt32(bytes, 4), new SavedInspectionLimits()).Range.End;
+            Check(ColonySaveReadback.HeaderOnly(bytes.AsSpan(0, bodyStart).ToArray()), "the header and directory alone read as header-only: " + path);
+            Check(ColonySaveReadback.SimSection(bytes.AsSpan(0, bodyStart).ToArray()) == null && !ColonySaveReadback.HeaderOnly(bytes.AsSpan(0, bodyStart - 1).ToArray()),
+                "the header alone reads as header-only, and no shorter prefix does: " + path);
             var build = BitConverter.ToInt32(sim!, 12); var model = BitConverter.ToInt32(sim!, 16);
             var catalog = sim!.AsSpan(28, 32).ToArray();
             // The envelope records the build that wrote it: 744825 in the prepared saves, a later supported build in a player's.

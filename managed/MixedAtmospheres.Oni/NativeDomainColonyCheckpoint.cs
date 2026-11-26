@@ -135,7 +135,7 @@ namespace MixedAtmospheres.Oni
                     throw new IOException("Normal colony save did not finish its requested file.");
                 Require(serializedBodyCaptures==1 && stagedColonySave!=null,"Normal colony save has no complete serialized body.");
                 if(serializedHeaderCaptures!=1) throw new IOException("Normal colony save did not finish writing its current header.");
-                if(!PendingSaveWrite.Wait(actual,out _)) throw new IOException("The colony save's background write did not finish: "+actual+PendingSaveWrite.Suffix);
+                if(!PendingSaveWrite.Wait(actual,out _,pending:ColonyOwnerPersistence.SaveWritePending)) throw new IOException("The colony save's background write did not finish: "+actual+PendingSaveWrite.Suffix);
                 using var file=new FileStream(actual,FileMode.Open,FileAccess.Read,FileShare.Read);
                 if(file.Length>1<<30) throw new IOException("Saved colony exceeds the supported readback limit.");
                 var bytes=new byte[checked((int)file.Length)];var count=0;

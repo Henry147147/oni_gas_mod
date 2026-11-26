@@ -18,24 +18,26 @@ namespace MixedAtmospheres.Oni
         // compresses in a few seconds.
         internal const int WaitMilliseconds = 45_000;
 
+        // Whether a save's background write is in flight: its "<save>.writing"
+        // is there.
+        internal static bool Writing(string save) => File.Exists(save + Suffix);
+
         // True when no write is pending (or it finished within the bound);
-        // `waited` is how long the caller waited.
-        internal static bool Wait(string save, out long waited, int bound = WaitMilliseconds, Func<string, bool>? exists = null, Action<int>? sleep = null)
+        // `waited` is how long the caller waited. `pending` tells, for the
+        // save, whether its write is still in flight (default: Writing).
+        internal static bool Wait(string save, out long waited, int bound = WaitMilliseconds, Func<string, bool>? pending = null, Action<int>? sleep = null)
         {
-            exists ??= File.Exists; sleep ??= Thread.Sleep;
+            pending ??= Writing; sleep ??= Thread.Sleep;
             waited = 0;
-            string pending;
-            try { pending = save + Suffix; if (!exists(pending)) return true; }
-            catch (Exception) { return true; }
+            bool Pending() { try { return pending(save); } catch (Exception) { return false; } }
+            if (!Pending()) return true;
             var clock = Stopwatch.StartNew();
             for (var pause = 10; ; pause = Math.Min(pause * 2, 200))
             {
-                bool still;
-                try { still = exists(pending); } catch (Exception) { still = false; }
-                waited = clock.ElapsedMilliseconds;
-                if (!still) return true;
-                if (waited >= bound) return false;
                 sleep(pause);
+                waited = clock.ElapsedMilliseconds;
+                if (!Pending()) return true;
+                if (waited >= bound) return false;
             }
         }
     }

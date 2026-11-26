@@ -317,6 +317,74 @@ steps stop and say to run `python3 tools/workshop.py fetch-mod 3609531831`.
 a test compares them with the driver's scenario list. Sustained player speed still requires
 a live colony measurement. Historical-build qualification runs separately.
 
+<a id="moono"></a>
+### With and without Moono
+
+The user asked on 2026-11-26 to "double the testing to cover with and without moono"
+([Moono](game-update-resilience.md#moono)). The suite's `moono` platform repeats every
+Linux game step through Moono: `moono-<name>` beside `linux-<name>`, the same kind,
+scenario and options, on the Linux build's package (`linux-build` is shared), with its
+own run folder. A dependency on another Linux game step becomes that step's twin, so
+the cycle steps' autosaves come from Moono runs. Each twin passes
+`--moono PLAYER --moono-tweaks default` to `tools/oni_headless.py`: no `--game-tweak`,
+so Moono's own defaults (what players run) apply, and the run records the effective
+tweaks from the log. Moono draws on the harness's Xvfb desktop, because it needs a
+connected monitor. There is no `--gpu-display`, and Vulkan still renders on the GPU.
+Besides its Linux checks, a twin requires:
+
+- `result.json` says `player: moono`;
+- the Moono release is recorded;
+- the tweaks are Moono's defaults (the log's "option game tweaks on/off" lines, not the
+  command line);
+- the mod's `Game build N verified on Moono <release>` line names that release.
+
+```sh
+python3 tools/moono.py fetch                                     # the latest release into local/moono/release
+python3 tools/acceptance_suite.py plan --tier release --platform all
+python3 tools/acceptance_suite.py run HEAD --tier release --platform moono --keep-going
+```
+
+`--platform` takes `linux`, `windows`, `moono`, `both` (Linux and Windows, the default)
+and `all`. `--moono PLAYER_DIR` overrides the default player
+`local/moono/release/linux/oni-moono/player` of the main checkout. The suite reads
+`local/` (saves, other mods, the Moono player) from the main checkout also when it runs
+from a worktree. A tier counts as passed (`tier_passed`) only when its steps on all
+three platforms passed. Step counts in 1.15.0:
+
+| Tier | linux | windows | moono | all |
+| --- | ---: | ---: | ---: | ---: |
+| patch | 4 (offline, build, b1, b13) | 2 | 3 (build, b1, b13) | 8 |
+| quick | 26 | 20 | 26 (build and 25 twins) | 71 |
+| release | 79 | 20 | 78 (build and 77 twins) | 176 |
+
+Steps without a twin (`MOONO_EXCLUDED`):
+
+- **`linux-resume-refused`.** Its refusal comes from the patch mark that the stand-in
+  mod's removed Harmony patches leave on game methods. Mono keeps NoInlining in its
+  own method record, where reflection reads it. Under Moono's CoreCLR the flag is not
+  part of what reflection reports (inferred, not measured), so the build would
+  verify and nothing would be refused.
+- **The builds and `linux-offline`.** These are not game runs; the patch tier's
+  standalone checks run once.
+
+What to expect to differ under CoreCLR:
+
+- **The suite's own checks compare no timing.** They check harness classifications,
+  the owner's own mass and energy bounds (native arithmetic, the same on both players),
+  frame and cycle counts, saved profile fields and file hashes. None uses a frame rate
+  or a speed. Timings in `result.json` and the performance log are recorded, never judged.
+- **Managed floating point.** Unity's Mono may evaluate some float arithmetic in double
+  precision; Moono's `exact-worldgen` does so for worldgen alone. CoreCLR evaluates
+  float as float, and Moono converts floats to integers as Mono does. Game code that
+  feeds an in-game scenario's check through float arithmetic can therefore end a last
+  bit apart from the value measured on Unity's player. Such a check gets its own Moono
+  expectation once a run shows the difference and its cause; no shared bound is
+  loosened.
+- **Saves.** Moono's default `background-save` and `fast-save-compression` write saves
+  asynchronously and with .NET's zlib. Saves are read only after the game quits, and
+  Moono waits for its writes then. The mod's own readers wait for a pending write
+  (`PendingSaveWrite`).
+
 To run just the fixed benchmarks on the private regression host:
 
 ```sh

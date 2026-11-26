@@ -72,6 +72,59 @@ class PlanTests(unittest.TestCase):
             self.assertIn(name, names(steps))
         self.assertEqual(len(set(names(steps))), len(steps))
 
+    def test_moono_repeats_every_linux_game_step_on_the_linux_package(self):
+        for tier in ("quick", "release"):
+            linux = suite.plan(tier, ("linux",))
+            moono = suite.plan(tier, ("moono",))
+            games = [s for s in linux if s.kind not in ("build", "offline")]
+            twins = [s for s in moono if s.platform == "moono"]
+            # The Linux build is shared; each twin is moono-<name> with the same kind and options.
+            self.assertEqual([s.name for s in moono if s.platform != "moono"], ["linux-build"])
+            expected = [s for s in games if s.kind not in suite.MOONO_EXCLUDED]
+            self.assertEqual(names(twins), ["moono-" + s.name[len("linux-"):] for s in expected])
+            for original, twin in zip(expected, twins):
+                self.assertEqual((twin.kind, twin.options), (original.kind, original.options))
+                self.assertEqual(twin.deps, tuple(d if d == "linux-build" else "moono-" + d[len("linux-"):] for d in original.deps))
+            # Every Linux game step is either repeated or listed with its reason.
+            left = {s.kind for s in games} - {s.kind for s in twins}
+            self.assertEqual(left, set(suite.MOONO_EXCLUDED) & {s.kind for s in games})
+            self.assertTrue(all(len(reason) > 40 for reason in suite.MOONO_EXCLUDED.values()))
+        release = suite.plan("release", suite.PLATFORM_CHOICES["all"])
+        self.assertEqual(len(set(names(release))), len(release))
+        self.assertEqual(names(suite.plan("release", ("linux", "windows"))), names(suite.plan("release")))
+        self.assertEqual(names(release)[:len(suite.plan("release"))], names(suite.plan("release")))
+        self.assertNotIn("moono-resume-refused", names(release))
+        self.assertIn("moono-ten-cycle", names(release))
+        # The patch tier's two batches and the affected scenarios' batches get their twins; no second offline step.
+        patch = suite.plan("patch", ("linux", "moono"), ("airflow",))
+        self.assertEqual([s.name for s in patch if s.platform == "moono"], ["moono-b1", "moono-b2", "moono-b13"])
+        self.assertEqual(sum(s.kind == "offline" for s in patch), 1)
+        self.assertEqual(names(suite.select(suite.plan("quick", ("moono",)), "moono-one-cycle")), ["linux-build", "moono-one-cycle"])
+        self.assertEqual(suite.describe(next(s for s in release if s.name == "moono-b1"))["platform"], "moono")
+        with self.assertRaisesRegex(ValueError, "moono"):
+            suite.plan("quick", ("mac",))
+
+    def test_a_moono_step_also_needs_moono_its_release_and_the_mods_verified_line(self):
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        output = Path(temporary.name) / "moono-step"
+        result = {"player": "moono", "moono_player": {"release": "v2026.11.26.02", "commit": "36d6", "tweaks": "default",
+                  "tweaks_effective": {"source": "default", "on": ["background-save"], "off": ["sim-step-pace"]}}}
+        write(output / "result.json", result)
+        write(output / "Player.log", "[Mixed Atmospheres] Game build 764025 verified on Moono v2026.11.26.02: 3010 managed dependencies ...\n")
+        checks, details = suite.moono_checks(output)
+        self.assertTrue(all(checks.values()), checks)
+        self.assertEqual(details["moono"]["release"], "v2026.11.26.02")
+        write(output / "Player.log", "[Mixed Atmospheres] Game build 764025 verified: 3010 managed dependencies ...\n")
+        self.assertFalse(suite.moono_checks(output)[0]["mod_verified_on_moono"])
+        write(output / "Player.log", "[Mixed Atmospheres] Game build 764025 verified on Moono v2026.11.20.01: ...\n")
+        self.assertFalse(suite.moono_checks(output)[0]["mod_verified_on_moono"])
+        result["moono_player"]["tweaks_effective"] = {"source": "command line", "on": [], "off": None}
+        write(output / "result.json", result)
+        self.assertFalse(suite.moono_checks(output)[0]["moono_default_tweaks"])
+        write(output / "result.json", {"player": "unity", "moono_player": None})
+        checks, _ = suite.moono_checks(output)
+        self.assertFalse(checks["ran_on_moono"] or checks["moono_release_recorded"])
+
     def test_release_adds_the_remaining_scenarios_and_the_ten_cycle_run(self):
         quick, release = names(suite.plan("quick")), suite.plan("release")
         extra = [s for s in release if s.name not in quick]
@@ -83,7 +136,8 @@ class PlanTests(unittest.TestCase):
         menu = suite.describe(extra[-2])["command"]
         self.assertEqual((extra[-2].kind, extra[-2].deps), ("menu-other-mod", ("linux-build",)))
         self.assertEqual(menu[menu.index("--mode") + 1], "menu")
-        self.assertEqual(menu[menu.index("--extra-mod-first") + 1], str(suite.ROOT / "local/other-mods/src/Rephysicalized"))
+        # Third-party mods lie in the main checkout's local/ also when the suite runs from a worktree.
+        self.assertEqual(menu[menu.index("--extra-mod-first") + 1], str(suite.SHARED / "local/other-mods/src/Rephysicalized"))
         # The guard of a refused mod resumes the autosave that the one-cycle run wrote on the running build.
         self.assertEqual((extra[-3].kind, extra[-3].deps), ("resume-refused", ("linux-one-cycle",)))
         command = suite.describe(extra[-3])["command"]
@@ -449,14 +503,26 @@ class GuardTests(unittest.TestCase):
             suite.base_source_save(output, REVISION)
 
     def test_linux_game_commands_carry_the_player_choice(self):
-        infra = suite.Infra(Path("/linux"), Path("/windows"), Path("/proton"), Path("/mingw"), Path("/wine"), ":99")
-        moono = suite.Infra(Path("/linux"), Path("/windows"), Path("/proton"), Path("/mingw"), Path("/wine"), ":99", Path("/moono/player"))
-        step = next(s for s in suite.plan("release") if s.kind == "batch")
-        self.assertNotIn("--moono", suite.linux_command(step, Path("/p"), Path("/o"), infra))
-        for command in (suite.linux_command(step, Path("/p"), Path("/o"), moono),
-                        suite.menu_other_mod_command(Path("/p"), Path("/o"), moono, Path("/mod")),
-                        suite.resume_refused_command(Path("/p"), Path("/o"), moono, Path("/s.sav"), Path("/mod"))):
+        infra = suite.Infra(Path("/linux"), Path("/windows"), Path("/proton"), Path("/mingw"), Path("/wine"), ":99", Path("/moono/player"))
+        steps = suite.plan("release", ("linux", "moono"))
+        step = next(s for s in steps if s.platform == "linux" and s.kind == "batch")
+        twin = next(s for s in steps if s.name == "moono-" + step.name[len("linux-"):])
+        original = suite.linux_command(step, Path("/p"), Path("/o"), infra)
+        self.assertNotIn("--moono", original)
+        self.assertEqual(original[original.index("--gpu-display") + 1], ":99")
+        for command in (suite.linux_command(twin, Path("/p"), Path("/o"), infra),
+                        suite.menu_other_mod_command(Path("/p"), Path("/o"), infra, Path("/mod"), "moono"),
+                        suite.resume_refused_command(Path("/p"), Path("/o"), infra, Path("/s.sav"), Path("/mod"), "moono")):
             self.assertEqual(command[command.index("--moono") + 1], "/moono/player")
+            self.assertEqual(command[command.index("--moono-tweaks") + 1], "default")
+            # Moono draws on the harness's Xvfb desktop: it needs a connected monitor (Vulkan still uses the GPU).
+            self.assertNotIn("--gpu-display", command)
+        for command in (suite.menu_other_mod_command(Path("/p"), Path("/o"), infra, Path("/mod")),
+                        suite.resume_refused_command(Path("/p"), Path("/o"), infra, Path("/s.sav"), Path("/mod"))):
+            self.assertNotIn("--moono", command)
+        without = suite.Infra(Path("/linux"), Path("/windows"), Path("/proton"), Path("/mingw"), Path("/wine"), ":99")
+        with self.assertRaisesRegex(suite.Refused, "Moono player folder"):
+            suite.linux_command(twin, Path("/p"), Path("/o"), without)
 
     def test_a_scenario_with_another_mod_loads_it_first_or_says_how_to_get_it(self):
         step = next(s for s in suite.plan("release") if s.options.get("scenario") == "rephysicalized")

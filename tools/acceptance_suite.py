@@ -9,6 +9,11 @@ Tiers (user decision 2026-10-26):
 - ``release``: everything in ``quick`` plus the 30,000-frame ten-cycle run on
   the same frozen save.
 
+The ``moono`` platform (user request 2026-11-26, "double the testing to cover
+with and without moono") repeats every Linux game step through Moono with its
+default tweaks, as ``moono-<name>`` beside ``linux-<name>``; the steps it cannot
+repeat are listed in MOONO_EXCLUDED with the reason.
+
 The separate ``patch`` tier runs standalone tests, fixed colony replays and
 timings, two Linux gameplay batches and a WindowsPlayer real-save reload.
 
@@ -47,6 +52,20 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def shared_root() -> Path:
+    """The main checkout of this repository (a worktree's common root), else ROOT: the ignored
+    `local/` folder and the shared builds live only there."""
+    try:
+        common = subprocess.check_output(["git", "rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=ROOT,
+                                         text=True, stderr=subprocess.DEVNULL).strip()
+        return Path(common).parent
+    except (OSError, subprocess.CalledProcessError):
+        return ROOT
+
+
+SHARED = shared_root()
 TOOLS = ROOT / "tools"
 GAME_SLOT = TOOLS / "game_slot.sh"
 RUN_LOCKED = TOOLS / "run_locked.sh"
@@ -151,7 +170,7 @@ LINUX_EXTRA_BATCHES = (
 )
 # Third-party mods some scenarios load first. They never enter git: they lie in local/other-mods/src,
 # where tools/workshop.py fetch-mod puts a Workshop item.
-OTHER_MODS = ROOT / "local/other-mods/src"
+OTHER_MODS = SHARED / "local/other-mods/src"
 OTHER_MOD_ITEMS = {"Rephysicalized": 3609531831}
 OTHER_MOD_SCENARIOS = {"rephysicalized": "Rephysicalized"}
 
@@ -182,7 +201,21 @@ LINUX_TIMEOUT = 6800
 PROTON_BATCH_TIMEOUT = 1800
 LONG_RUN_TIMEOUT = 172800
 TIERS = ("patch", "quick", "release")
-PLATFORMS = ("linux", "windows")
+PLATFORMS = ("linux", "windows", "moono")
+# --platform: one of PLATFORMS, `both` (linux and windows, as before Moono) or `all`.
+PLATFORM_CHOICES = {"linux": ("linux",), "windows": ("windows",), "moono": ("moono",),
+                    "both": ("linux", "windows"), "all": PLATFORMS}
+# Moono's player folder (tools/moono.py fetch puts a release there) and the tweaks its steps run with:
+# Moono's own defaults, what players run (several default-on tweaks touch saving and serialization).
+MOONO_PLAYER = Path("local/moono/release/linux/oni-moono/player")
+MOONO_TWEAKS = "default"
+# Linux game steps by kind that have no Moono twin, and why (docs/performance-acceptance.md#moono).
+MOONO_EXCLUDED = {
+    "resume-refused": "its refusal comes from the patch mark that the stand-in mod's removed Harmony patches leave "
+                      "on game methods: Mono keeps NoInlining in its own method record, where reflection reads it. "
+                      "Under Moono's CoreCLR the flag is not part of what reflection reports (inferred, not measured), "
+                      "so the build would verify and nothing be refused; the step would test nothing",
+}
 FORBIDDEN_DLL_IMPORTS = ("libstdc++", "libgcc", "libwinpthread")
 
 # The explicit non-default colony preset of the WindowsPlayer settings control.
@@ -236,10 +269,20 @@ class Infra:
     moono: Path | None = None
 
 
-def linux_player(infra) -> list[str]:
-    """The Linux game steps' player choice, for every command that starts tools/oni_headless.py run."""
-    moono = getattr(infra, "moono", None)
-    return ["--moono", str(moono)] if moono is not None else []
+def linux_player(infra, platform: str = "linux") -> list[str]:
+    """The player of a Linux game step, for every command that starts tools/oni_headless.py run: Unity's
+    (the original) for `linux` steps; for `moono` steps, Moono's with its default tweaks on the harness's own
+    Xvfb desktop (no --gpu-display: Moono needs a connected monitor, and Vulkan still renders on the GPU there)."""
+    if platform != "moono":
+        return []
+    if getattr(infra, "moono", None) is None:
+        raise Refused("A moono step needs a Moono player folder (--moono, default " + str(SHARED / MOONO_PLAYER) + ")")
+    return ["--moono", str(infra.moono), "--moono-tweaks", MOONO_TWEAKS]
+
+
+def display_arguments(infra, platform: str) -> list[str]:
+    """The display a Linux game step draws on: the GPU display for Unity's player, the harness's Xvfb desktop for Moono's."""
+    return [] if platform == "moono" else ["--gpu-display", infra.gpu_display]
 
 
 @dataclass
@@ -269,11 +312,30 @@ class Layout:
 
 # ---------------------------------------------------------------- the plan
 
-def plan(tier: str, platforms: tuple[str, ...] = PLATFORMS, scenarios: tuple[str, ...] = ()) -> list[Step]:
+def moono_twins(steps: list[Step]) -> list[Step]:
+    """The Moono twin of every Linux game step (MOONO_EXCLUDED aside): `moono-<name>`, the same kind and options,
+    on the Linux package; a dependency on another Linux game step becomes its twin."""
+    def twin(name: str) -> str:
+        return "moono-" + name[len("linux-"):]
+    return [Step(twin(step.name), "moono", step.kind,
+                 tuple(dep if dep == "linux-build" else twin(dep) for dep in step.deps), step.options)
+            for step in steps if step.platform == "linux" and step.kind not in ("build", "offline")
+            and step.kind not in MOONO_EXCLUDED]
+
+
+def plan(tier: str, platforms: tuple[str, ...] = ("linux", "windows"), scenarios: tuple[str, ...] = ()) -> list[Step]:
     if tier not in TIERS:
         raise ValueError("unknown acceptance tier: " + tier)
     if not platforms or any(p not in PLATFORMS for p in platforms):
-        raise ValueError("platforms are linux and/or windows")
+        raise ValueError("platforms are linux, windows and/or moono")
+    if "moono" in platforms:
+        # Moono shares the Linux build and package; its steps follow the Linux ones' plan.
+        own = tuple(p for p in platforms if p != "moono")
+        linux = plan(tier, ("linux",), scenarios)
+        steps = plan(tier, own, scenarios) if own else []
+        if "linux" not in platforms:
+            steps = [step for step in linux if step.name == "linux-build"] + steps
+        return steps + moono_twins(linux)
     if scenarios and tier != "patch":
         raise ValueError("--scenario extends the patch tier")
     if tier == "patch":
@@ -702,19 +764,21 @@ def build_windows(layout: Layout, revision: str, infra: Infra) -> tuple[dict, di
 # ---------------------------------------------------------------- game commands
 
 def linux_command(step: Step, package: Path, output: Path, infra: Infra, load: Path | None = None) -> list[str]:
-    command = [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package), *linux_player(infra)]
+    command = [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package),
+               *linux_player(infra, step.platform)]
+    display = display_arguments(infra, step.platform)
     if step.kind == "cycle":
         # The frozen save is a base-game colony: pin the content so the run does not depend on which
         # game install the harness defaults to (a Spaced Out!-enabled install would otherwise be the
         # one the save was made on or refuse it).
         return command + ["--dlc-mask", "0", "--mode", "colony-owner-load", "--load-save", str(load), "--long-run",
                           "--frames", str(step.options["frames"]), "--timeout", str(LONG_RUN_TIMEOUT),
-                          "--gpu-display", infra.gpu_display, "--output", str(output)]
+                          *display, "--output", str(output)]
     # The scenario batches and the worldgen clusters are base-game runs unless a batch names its
     # content. The Linux copy of the game includes Spaced Out! since build 763796 and the Linux
     # runner leaves the game's own selection alone unless told, so pin the base game here as the
     # Proton runner does by default.
-    command += ["--dlc-mask", str(step.options.get("dlc_mask", 0)), "--mode", "colony-owner", "--gpu-display", infra.gpu_display,
+    command += ["--dlc-mask", str(step.options.get("dlc_mask", 0)), "--mode", "colony-owner", *display,
                 "--timeout", str(LINUX_TIMEOUT), "--output", str(output)]
     if step.kind == "batch":
         first = OTHER_MOD_SCENARIOS.get(step.options["scenario"])
@@ -1097,7 +1161,7 @@ def linux_cycle_autosave(output: Path, revision: str) -> Path:
 RESUME_REFUSAL_CAUSE = "[Mixed Atmospheres] Colony save refused before loading: This colony uses Mixed Atmospheres, which is not active because the game's code differs from the supported build"
 
 
-def resume_refused_command(package: Path, output: Path, infra: Infra, save: Path, other_mod: Path) -> list[str]:
+def resume_refused_command(package: Path, output: Path, infra: Infra, save: Path, other_mod: Path, platform: str = "linux") -> list[str]:
     """The main menu resumes `save` while a mod loaded first keeps Mixed Atmospheres off (tools/GameContractOtherMod).
 
     The stand-in runs with MA_OTHER_MOD_REMOVES_PATCHES=1: it patches two game methods the mod uses and removes
@@ -1105,15 +1169,34 @@ def resume_refused_command(package: Path, output: Path, infra: Infra, save: Path
     reads as changed (another mod's patch alone is accepted, docs/game-update-resilience.md#other-mods), while
     the two load entries stay verified and the mod's guard is installed on them.
     """
-    return [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package), *linux_player(infra),
-            "--mode", "menu", "--resume-save", str(save), "--extra-mod-first", str(other_mod),
-            "--gpu-display", infra.gpu_display, "--timeout", "600", "--output", str(output)]
+    return [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package),
+            *linux_player(infra, platform), "--mode", "menu", "--resume-save", str(save), "--extra-mod-first", str(other_mod),
+            *display_arguments(infra, platform), "--timeout", "600", "--output", str(output)]
 
 
-def menu_other_mod_command(package: Path, output: Path, infra: Infra, mod: Path) -> list[str]:
+def menu_other_mod_command(package: Path, output: Path, infra: Infra, mod: Path, platform: str = "linux") -> list[str]:
     """The main menu with another mod loaded first; the release folder is judged by the game's log."""
-    return [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package), *linux_player(infra),
-            "--mode", "menu", "--extra-mod-first", str(mod), "--gpu-display", infra.gpu_display, "--timeout", "600", "--output", str(output)]
+    return [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package),
+            *linux_player(infra, platform), "--mode", "menu", "--extra-mod-first", str(mod), *display_arguments(infra, platform),
+            "--timeout", "600", "--output", str(output)]
+
+
+# What every moono step also requires (MOONO_EXCLUDED aside): the game ran through Moono, its release is recorded,
+# and the mod verified the game there ("Game build N verified on Moono vX", GameBuildCheck.VerifyManaged).
+def moono_checks(output: Path) -> tuple[dict, dict]:
+    result = read_json(output / "result.json") if (output / "result.json").is_file() else {}
+    player = result.get("moono_player") or {}
+    release = player.get("release")
+    log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").is_file() else ""
+    verified = re.search(r"\[Mixed Atmospheres\] Game build \d+ verified on Moono (\S+):", log)
+    checks = {"ran_on_moono": result.get("player") == "moono",
+              "moono_release_recorded": bool(release),
+              "moono_default_tweaks": player.get("tweaks") == MOONO_TWEAKS and (player.get("tweaks_effective") or {}).get("source") is not None
+                  and (player.get("tweaks_effective") or {}).get("source") != "command line",
+              "mod_verified_on_moono": bool(verified) and verified.group(1) == release}
+    return checks, {"moono": {"release": release, "commit": player.get("commit"), "renderer": player.get("renderer"),
+                              "tweaks": player.get("tweaks"), "tweaks_effective": player.get("tweaks_effective"),
+                              "verified_line": verified.group(0) if verified else None}}
 
 
 def menu_other_mod_checks(rc: int, output: Path) -> tuple[dict, dict]:
@@ -1280,15 +1363,19 @@ class Suite:
                 "commands", "passed", "reused_verified_package")}
             return checks, {"build": self.packages[step.platform]}
         verify_source(self.layout, self.revision)
-        package = self.layout.linux_package if step.platform == "linux" else self.layout.windows_package
+        package = self.layout.windows_package if step.platform == "windows" else self.layout.linux_package
         manifest = verify_package(package, self.revision)
         output = self.layout.runs / step.name
         log = self.layout.runs / (step.name + ".log")
         if output.exists() or log.exists():
             raise Refused(f"Refusing to reuse run output {output}")
-        if step.platform == "linux":
-            return self.linux(step, package, manifest, output, log)
-        return self.windows(step, package, manifest, output, log)
+        if step.platform == "windows":
+            return self.windows(step, package, manifest, output, log)
+        checks, details = self.linux(step, package, manifest, output, log)
+        if step.platform == "moono":
+            extra, facts = moono_checks(output)
+            checks, details = {**checks, **extra}, {**details, **facts}
+        return checks, details
 
     def game(self, command: list[str], log: Path, env: dict) -> int:
         with log.open("x") as stream:
@@ -1314,11 +1401,11 @@ class Suite:
                 raise Refused("The stand-in mod did not build: " + (built.stdout + built.stderr)[-400:])
             # The stand-in removes its patches again and leaves the load entries alone (resume_refused_command).
             env["MA_OTHER_MOD_REMOVES_PATCHES"] = "1"
-            rc = self.game(resume_refused_command(package, output, self.infra, save, other_mod), log, env)
+            rc = self.game(resume_refused_command(package, output, self.infra, save, other_mod, step.platform), log, env)
             checks, details = resume_refused_checks(rc, output, save, save_sha)
             return checks, {**common, "returncode": rc, **details}
         if step.kind == "menu-other-mod":
-            rc = self.game(menu_other_mod_command(package, output, self.infra, other_mod_folder(step.options["mod"])), log, env)
+            rc = self.game(menu_other_mod_command(package, output, self.infra, other_mod_folder(step.options["mod"]), step.platform), log, env)
             checks, details = menu_other_mod_checks(rc, output)
             return checks, {**common, "returncode": rc, **details}
         if step.kind == "batch" and step.options["scenario"] in OTHER_MOD_SCENARIOS:
@@ -1327,7 +1414,7 @@ class Suite:
             rc = self.game(linux_command(step, package, output, self.infra), log, env)
             checks, details = linux_checks(rc, output)
             return checks, {**common, "returncode": rc, **details}
-        source = ROOT / FROZEN_SAVE
+        source = SHARED / FROZEN_SAVE
         require_base_game_save(save_header(source.read_bytes())[1])
         copy = stage_frozen_save(source, self.layout.runs / (step.name + "-input.sav"))
         manifest_sha = sha256(package / "package-manifest.json")
@@ -1344,7 +1431,7 @@ class Suite:
         runs, kind = self.layout.runs, step.kind
         load = None
         if kind == "meteor-reload":
-            load = stage_frozen_save(ROOT / METEOR_SAVE, runs / "meteor-input.sav", METEOR_SAVE_SHA256)
+            load = stage_frozen_save(SHARED / METEOR_SAVE, runs / "meteor-input.sav", METEOR_SAVE_SHA256)
         elif kind == "proton-prepared-cycle":
             load = base_source_save(runs / "windows-base-source", self.revision)
         elif kind == "proton-autosave-cold":
@@ -1739,7 +1826,8 @@ def infra_from(args) -> Infra:
         proton=Path(args.proton or common / "build-proton-official10/proton-10.0-4b"),
         mingw_root=Path(args.mingw_root or common / "build-oni-cross-tools/root/usr"),
         wine_root=Path(args.wine_root or common / "build-wine/root"),
-        gpu_display=args.gpu_display)
+        gpu_display=args.gpu_display,
+        moono=Path(getattr(args, "moono", None) or common / MOONO_PLAYER))
 
 
 def offline_commands(build: Path, output: Path, game: Path) -> list[tuple[str, list[str]]]:
@@ -1756,22 +1844,22 @@ def describe(step: Step) -> dict:
     """A dry-run description of one step's game command (paths are placeholders)."""
     package = Path("<package>")
     output = Path("<runs>") / step.name
-    infra = Infra(Path("<linux-game>"), Path("<windows-game>"), Path("<proton>"), Path("<mingw>"), Path("<wine>"), ":99")
+    infra = Infra(Path("<linux-game>"), Path("<windows-game>"), Path("<proton>"), Path("<mingw>"), Path("<wine>"), ":99", Path("<moono-player>"))
     if step.kind == "offline":
-        return {"name": step.name, "kind": step.kind, "deps": list(step.deps),
+        return {"name": step.name, "platform": step.platform, "kind": step.kind, "deps": list(step.deps),
                 "commands": [locked_check(name, cmd) for name, cmd in offline_commands(Path("build-production"), output, infra.linux_game)]}
     if step.kind == "build":
         command = ["<build, CTest, hook tests and package>"]
     elif step.kind == "menu-other-mod":
-        command = menu_other_mod_command(package, output, infra, OTHER_MODS / step.options["mod"])
+        command = menu_other_mod_command(package, output, infra, OTHER_MODS / step.options["mod"], step.platform)
     elif step.kind == "resume-refused":
         command = resume_refused_command(package, output, infra, Path("<runs>") / step.deps[0] / "auto_save/<autosave>",
-                                         Path("<runs>") / (step.name + "-other-mod"))
-    elif step.platform == "linux":
+                                         Path("<runs>") / (step.name + "-other-mod"), step.platform)
+    elif step.platform in ("linux", "moono"):
         command = linux_command(step, package, output, infra, load=Path("<runs>") / (step.name + "-input.sav"))
     else:
         command = windows_command(step, package, output, infra, Path("<source>"), Path("<input>"))
-    return {"name": step.name, "kind": step.kind, "deps": list(step.deps),
+    return {"name": step.name, "platform": step.platform, "kind": step.kind, "deps": list(step.deps),
             "command": slot(command) if step.kind != "build" else command}
 
 
@@ -1786,7 +1874,10 @@ def parser() -> argparse.ArgumentParser:
             command.add_argument("--keep-going", action="store_true", help="Run every step even after a failure")
             command.add_argument("--no-fetch", action="store_true", help="Check against the current origin/main")
         command.add_argument("--tier", choices=TIERS, default="quick")
-        command.add_argument("--platform", choices=("both", *PLATFORMS), default="both")
+        command.add_argument("--platform", choices=tuple(PLATFORM_CHOICES), default="both",
+                             help="linux, windows, moono (Linux game steps again through Moono), both (linux and windows) or all")
+        command.add_argument("--moono", type=Path, help="Moono player folder for the moono steps "
+                             f"(default: {MOONO_PLAYER} in the main checkout; tools/moono.py fetch puts a release there)")
         command.add_argument("--only", help="Comma-separated step names (see plan)")
         command.add_argument("--scenario", action="append", default=[],
                              help="Also run each original gameplay batch containing this scenario (patch tier, repeatable)")
@@ -1834,7 +1925,7 @@ def main(argv: list[str] | None = None) -> int:
         return ui_stage(args.stage, args.source.resolve(), args.output.resolve(), args.gpu_display, runner)
     if runner:
         raise SystemExit("Unexpected arguments after --")
-    platforms = PLATFORMS if args.platform == "both" else (args.platform,)
+    platforms = PLATFORM_CHOICES[args.platform]
     if args.scenario and args.only:
         raise SystemExit("--scenario extends a patch run; use --only separately to select individual steps")
     steps = select(plan(args.tier, platforms, tuple(args.scenario)), args.only)
@@ -1844,7 +1935,8 @@ def main(argv: list[str] | None = None) -> int:
     revision = resolve_revision(args.revision, fetch=not args.no_fetch)
     base = ROOT / "artifacts/acceptance" / revision[:7]
     infra = infra_from(args)
-    games = {"linux": (infra.linux_game, "linux-x64"), "windows": (infra.windows_game, "windows-x64")}
+    games = {"linux": (infra.linux_game, "linux-x64"), "windows": (infra.windows_game, "windows-x64"),
+             "moono": (infra.linux_game, "linux-x64")}
     builds = {mod_identity.installed_build(*games[platform]) for platform in platforms}
     if len(builds) != 1:
         raise Refused("Select the same ONI build on both platforms for a two-platform run")
@@ -1857,7 +1949,9 @@ def main(argv: list[str] | None = None) -> int:
     layout = Layout(base, tag)
     if layout.runs.exists():
         raise Refused(f"Refusing to reuse {layout.runs}")
-    needed = [("linux game", infra.linux_game)] if "linux" in platforms else []
+    needed = [("linux game", infra.linux_game)] if "linux" in platforms or "moono" in platforms else []
+    if "moono" in platforms:
+        needed.append(("Moono player (tools/moono.py fetch)", infra.moono / "OniMoono"))
     if "windows" in platforms:
         needed += [("windows game", infra.windows_game), ("proton", infra.proton), ("mingw", infra.mingw_root),
                    ("wine", infra.wine_root)]
