@@ -158,4 +158,4 @@ After the upload, on the same revision:
 | --- | --- |
 | The user's other ten share saves (Cycles 49, 55, 121 to 127, 129) on the release folder with the seven other mods, Linux game 764025 | 10 of 10 load, run 300 ticks at speed 3 and save; with the five before the upload, each of the fifteen saves has loaded on this version |
 | The base-game building parts under the owner, with the base game's rocket modules | passed ([above](#after-this-version)) |
-| The whole release tier (with its 13 new games, `linux-resume-refused` and the steps [1.13.8 did not run](playtest-1.13.8.md#staged-package)) | running when this was written; the result is recorded here |
+| The whole release tier (with its 13 new games, `linux-resume-refused` and the steps [1.13.8 did not run](playtest-1.13.8.md#staged-package)), 2026-11-25 21:16 to 2026-11-26 06:14 UTC | 97 of 97 steps passed, none skipped: among them `linux-one-cycle`, `linux-resume-refused` (the autosave of the running game build, refused with the mod off), `linux-ten-cycle`, the every-building, rocket and critter games and all Windows steps under Proton |
