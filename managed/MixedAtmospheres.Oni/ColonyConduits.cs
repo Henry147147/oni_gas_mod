@@ -485,6 +485,8 @@ namespace MixedAtmospheres.Oni
             detail=$"{cells} occupied cells; held {held.Mass:R} kg; supplied {supplied.Mass:R} kg; removed {removed.Mass:R} kg; external heat {heat.Value:R} J; exact U residual {energy.Value:R} J; accounts exact {okay}";
             var diseases=new List<int>(DiseaseExchange.Keys);diseases.Sort();
             foreach(var disease in diseases)detail+=$"; germ {disease} exchange {DiseaseExchange[disease].Value:R}";
+            if(OtherModTakes+OtherModAdds+RefusedRemovals+RefusedAdds!=0)
+                detail+=$"; other mods' pipe components took {OtherModTakenKg:R} kg in {OtherModTakes} and added {OtherModAddedKg:R} kg in {OtherModAdds} (removed and supplied above); refused {RefusedRemovals} removals and {RefusedAdds} additions";
             if(ColonyPipePorts.Enabled)detail+="; "+ColonyPipePorts.Report;
             if(ColonyMachinePorts.Enabled)detail+="; "+ColonyMachinePorts.Report;
             return okay;
@@ -808,12 +810,20 @@ namespace MixedAtmospheres.Oni
                 if(result>0){scope.Target=cell;scope.Amount=result;}
                 return true;
             }
+            var otherMod=false;
             if(!controlSeeding)
             {
                 // Adapted scalar sources (conditioners) credit exactly what
-                // they debit; any other external writer stays refused.
+                // they debit.
                 if(ColonyMachinePorts.ExternalAdd(flow,cell,element,mass,temperature,disease,germs,ref result))return true;
-                result=0;return true;
+                // Another mod's pipe component adding through AddElement itself
+                // (docs/mixed-pipes.md#other-mods-pipe-components): accepted as the
+                // native pipe would, up to the cell's room, booked as supplied. A
+                // species the pipes do not carry, or one of the other phase, is refused.
+                var known=NativeIndices.TryGetValue(element,out var ordinal);
+                if(!ColonyMachinePorts.Enabled||ColonyFault.Faulted||!known||MaterialPhase(ordinal)!=(flow.conduitType==ConduitType.Gas?(byte)1:(byte)2))
+                {++RefusedAdds;RefusedAddKg+=mass;result=0;return true;}
+                otherMod=true;
             }
             SyncNative(flow,cell);
             var current=Ensure(flow,cell);
@@ -825,6 +835,7 @@ namespace MixedAtmospheres.Oni
             if(accepted>transfer.Parcel.Mass)accepted=BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(accepted)-1);
             transfer=PipeInventory.Transfer(incoming,current.Inventory,accepted,Flows[flow].Capacity,MaterialLookup);
             current.Inventory=transfer.Target;lock(Accounts)supplied=supplied.Joined(transfer.Parcel);
+            if(otherMod){++OtherModAdds;OtherModAddedKg+=accepted;}
             Publish(flow,cell,MassPublication.Added);result=accepted;return true;
         }
         internal static bool Remove(ConduitFlow flow,int cell,float mass,ref ConduitFlow.ConduitContents result)
@@ -839,9 +850,35 @@ namespace MixedAtmospheres.Oni
                 Publish(flow,cell,MassPublication.Removed);Publish(flow,scope.Target,MassPublication.Added);scope.Target=-1;
                 var shadow=new Cell(parcel,default);result=Project(shadow,default,Flows[flow].Capacity);return true;
             }
-            // No float-only world/storage dispatch from an unfinished control.
+            // Another mod's pipe consumer: a component that calls RemoveElement itself,
+            // outside ONI's pipe step, the adapted machine ports and the vents
+            // (docs/mixed-pipes.md#other-mods-pipe-components). It is given the species
+            // GetContents shows for the cell (the most massive), at most the mass asked,
+            // and is told exactly what left the pipe. Booked as removed from the pipes.
+            // Production pipes only (machine ports on): the pipe-only controls keep refusing.
+            if(transferScope==null&&ColonyMachinePorts.Enabled&&!ColonyFault.Faulted&&mass>0&&flow.HasConduit(cell))
+            {
+                var held=ReadSynced(flow,cell);
+                if(held.Count==0){result=ConduitFlow.ConduitContents.Empty;return true;}
+                var species=held.Dominant;var available=0.0;
+                foreach(var part in held.Parts)if(part.Id==species)available=part.Amount.Value;
+                var amount=Math.Min(mass,Math.Min((float)Flows[flow].Capacity,(float)available));
+                // Never more than the species holds: what the caller stores is what left.
+                while(amount>0&&amount>available)amount=BitConverter.Int32BitsToSingle(BitConverter.SingleToInt32Bits(amount)-1);
+                if(!(amount>0)){result=ConduitFlow.ConduitContents.Empty;return true;}
+                var parcel=TakeForPort(flow,cell,species,amount);
+                lock(Accounts)removed=removed.Joined(parcel);
+                ++OtherModTakes;OtherModTakenKg+=parcel.Mass;
+                result=parcel.Count==0?ConduitFlow.ConduitContents.Empty:Compatibility(parcel,flow);return true;
+            }
+            // Inside ONI's own pipe step without its staged move, or after a fault: nothing.
+            if(mass>0){++RefusedRemovals;RefusedRemovalKg+=mass;}
             result=ConduitFlow.ConduitContents.Empty;return true;
         }
+        // RemoveElement and AddElement calls of other mods' pipe components on owned
+        // cells: served (count and kg) and those that could not be (scenarios and reports).
+        internal static long OtherModTakes,OtherModAdds,RefusedRemovals,RefusedAdds;
+        internal static double OtherModTakenKg,OtherModAddedKg,RefusedRemovalKg,RefusedAddKg;
         internal static bool CanDump(ConduitFlow flow,int cell)=>!Owns(flow,cell)||ColonyPipeTeardown.Dump(flow,cell);
     }
     [HarmonyPatch(typeof(ConduitFlow),nameof(ConduitFlow.GetContents))]

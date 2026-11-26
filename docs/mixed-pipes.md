@@ -405,6 +405,39 @@ in its own cell and the solver's gravity moves it (main's decision
 2026-10-24); vanilla's FallingWater drip animation is absent. Single-element
 native particles from other sources are unchanged.
 
+<a id="other-mods-pipe-components"></a>
+### Other mods' pipe components
+
+A component of another mod that takes from or adds to a pipe through the
+game's pipe calls itself, rather than through the game's `ConduitConsumer`
+or `ConduitDispenser`, works on owned pipes from 1.14.0. Rephysicalized's
+`RephysicalizedConduitConsumer` on the Polymerizer is one; UtilLibs'
+`PortConduitConsumer` and `PortConduitDispenserBase` are others. Before
+1.14.0 such a call got nothing: `RemoveElement` returned empty contents and
+`AddElement` accepted 0 kg, while `GetContents` showed the cell's mixture.
+
+- **`RemoveElement(cell, mass)`** outside ONI's own pipe step, the adapted
+  machine ports and the vents takes only the species that `GetContents`
+  shows for the cell (its most massive). It takes at most the mass asked
+  and no more than that species holds. The caller is told exactly what left
+  the pipe: that element, its mass, temperature and germs. It is booked as
+  removed from the pipes.
+- **`AddElement(cell, element, mass, …)`** outside those paths is accepted
+  as the native pipe would accept it, up to the cell's room, and booked as
+  supplied. The return value is exactly what entered. A species the pipes
+  do not carry, or one of the other phase, is refused (0 kg).
+- **Accounting.** Both use the pipes' existing removed and supplied
+  accounts, which the pipe save and the audit already carry, so the saved
+  format does not change. The pipe audit's detail adds what other mods'
+  components took and added, and what could not be served: a call inside
+  ONI's pipe step without its staged move, a call after a fault, or a call
+  while only the pipe-only controls run.
+- **The game's own callers** of these calls on supported content are all
+  adapted paths (dispensers, conditioners, bridges, valves, filters, the
+  conduction panel, the morb maker, pipe emptying), so they are unchanged.
+  The game's `EntityConduitConsumer` (geothermal) and the bionic
+  duplicants' calls belong to content the mod does not run with.
+
 ### Phase change
 
 The native freeze/melt check sees only the projected dominant element, so it

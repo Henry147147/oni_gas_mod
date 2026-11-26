@@ -2255,8 +2255,13 @@ and load together).
 - **Its pipe intake.** Rephysicalized replaces the Polymerizer's intake with
   `RephysicalizedConduitConsumer`, which reads and takes from the pipe through
   the game's pipe calls (`ConduitFlow.GetContents`, `RemoveElement`) in a
-  conduit updater of its own. The scenario `rephysicalized` checks it on the
-  owner's mixed pipes.
+  conduit updater of its own. The game's own `ConduitConsumer` stays on the
+  press beside it. On owned pipes such a call got nothing before
+  1.14.0. It is now served the species the cell shows, exactly
+  ([other mods' pipe components](mixed-pipes.md#other-mods-pipe-components)).
+  The scenario `rephysicalized` checks that it receives petroleum, that
+  nothing is refused, and that the press takes what its converter uses
+  (0.8 kg/s, within 10 %, over the second half of a 57-tick window).
 - **Its elements.** Rephysicalized adds Molten Silicon and Silicon Gas and
   edits other elements, so a colony saved without it is refused while it is
   on, and the other way round, with what differs

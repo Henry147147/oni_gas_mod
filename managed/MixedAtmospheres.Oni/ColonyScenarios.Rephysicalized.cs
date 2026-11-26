@@ -39,11 +39,13 @@ namespace MixedAtmospheres.Oni
         // (Rephysicalized's: 0.8 kg/s of plastifiable liquid -> 0.5 kg/s polypropylene, 0.15 steam and
         // 0.15 carbon dioxide; its second converter takes resin). Petroleum per kg of polypropylene,
         // what it consumes besides petroleum, and a description of every converter for the detail.
-        private static (double perPlastic, string others, string description) RpRecipe(GameObject? press)
+        private static (double perPlastic, string others, string description) RpRecipe(GameObject? press) { var r = RpRecipeRates(press); return (r.perPlastic, r.others, r.description); }
+        // The same, with the petroleum the converter consumes per second (what the press needs to run on).
+        private static (double perPlastic, double input, string others, string description) RpRecipeRates(GameObject? press)
         {
-            if (press == null) return (double.NaN, "", "no press");
+            if (press == null) return (double.NaN, double.NaN, "", "no press");
             var petroleum = ElementLoader.FindElementByHash(SimHashes.Petroleum);
-            double perPlastic = double.NaN; var others = new List<string>(); var all = new List<string>();
+            double perPlastic = double.NaN, needed = double.NaN; var others = new List<string>(); var all = new List<string>();
             foreach (var converter in press.GetComponents<ElementConverter>())
             {
                 var consumed = converter.consumedElements ?? new ElementConverter.ConsumedElement[0];
@@ -54,16 +56,65 @@ namespace MixedAtmospheres.Oni
                 var plastic = made.Where(o => o.elementHash == SimHashes.Polypropylene).Sum(o => (double)o.massGenerationRate);
                 if (input > 0 && plastic > 0 && double.IsNaN(perPlastic))
                 {
-                    perPlastic = input / plastic;
+                    perPlastic = input / plastic; needed = input;
                     others.AddRange(consumed.Where(c => !(petroleum.HasTag(c.Tag) || c.Tag == petroleum.tag)).Select(c => c.Tag.Name));
                     var outTotal = made.Sum(o => (double)o.massGenerationRate); var inTotal = consumed.Sum(c => (double)c.MassConsumptionRate);
                     if (outTotal > inTotal * (1 + 1e-6)) all.Add($"(this recipe makes {outTotal:G4} kg/s from {inTotal:G4} kg/s: more mass than it takes)");
                 }
             }
-            return (perPlastic, string.Join(", ", others), string.Join(" ", all));
+            return (perPlastic, needed, string.Join(", ", others), string.Join(" ", all));
         }
         private static List<int> rpPipe = new List<int>();
-        private static int rpActiveA, rpActiveB;
+        // The press's intake per conduit tick (once a second of game time, after every
+        // updater: ConduitFlowPriority.LastPostUpdate): what the input cell showed, what the
+        // press had taken by then (held + converted), and under the owner what reached a
+        // storage through the adapted machine ports and how many removals it refused.
+        private sealed class RpTick { internal int Frame; internal float Shown; internal double Taken, Ports, OtherMod; internal long Refused; internal double RefusedKg; }
+        private static readonly List<RpTick> rpTicks = new List<RpTick>();
+        private static Action<float>? rpProbe;
+        private static double RpPressTaken()
+        {
+            if (rpPress == null) return 0;
+            var perPlastic = RpRecipe(rpPress).perPlastic;
+            return Stored(rpPress, SimHashes.Petroleum) + (double.IsNaN(perPlastic) ? 0 : perPlastic * (Stored(rpPress, SimHashes.Polypropylene) + RpDebris(SimHashes.Polypropylene, 'D')));
+        }
+        private static void RpPressTick(float dt)
+        {
+            if (rpPress == null) return;
+            rpTicks.Add(new RpTick { Frame = ColonyFrame(), Shown = Game.Instance.liquidConduitFlow.GetContents(rpPress.GetComponent<Building>().GetUtilityInputCell()).mass,
+                Taken = RpPressTaken(), Ports = Vanilla ? 0 : ColonyMachinePorts.ToStorage.Mass, OtherMod = ColonyConduits.OtherModTakenKg, Refused = ColonyConduits.RefusedRemovals, RefusedKg = ColonyConduits.RefusedRemovalKg });
+        }
+        // The intake's rate over the second half of the conduit ticks (kg/s; one tick is one second
+        // of game time), when the press's storage is full and it takes what its converter uses.
+        private static double RpLateRate()
+        {
+            if (rpTicks.Count < 5) return double.NaN;
+            var from = rpTicks.Count / 2; var last = rpTicks.Count - 1;
+            return (rpTicks[last].Taken - rpTicks[from].Taken) / (last - from);
+        }
+        // The intake's steady rate and its ticks, for the check's detail.
+        private static string RpPressIntake()
+        {
+            if (rpTicks.Count < 2) return "no conduit tick recorded";
+            int intakes = 0, firstFrame = -1, emptyShown = 0; double low = double.MaxValue, high = 0, sinceFirst = 0; var firstTick = -1;
+            for (var k = 1; k < rpTicks.Count; ++k)
+            {
+                var got = rpTicks[k].Taken - rpTicks[k - 1].Taken;
+                if (!(rpTicks[k].Shown > 0)) ++emptyShown;
+                if (got > 1e-6) { ++intakes; if (firstTick < 0) { firstTick = k; firstFrame = rpTicks[k].Frame; } low = Math.Min(low, got); high = Math.Max(high, got); }
+            }
+            var last = rpTicks[rpTicks.Count - 1];
+            if (firstTick > 0) sinceFirst = last.Taken - rpTicks[firstTick - 1].Taken;
+            var ticksAfter = firstTick > 0 ? rpTicks.Count - firstTick : 0;
+            var steady = ticksAfter > 0 ? sinceFirst / ticksAfter : 0; // one conduit tick is one second of game time
+            var refused = last.Refused - rpTicks[0].Refused; var refusedKg = last.RefusedKg - rpTicks[0].RefusedKg;
+            return $"{rpTicks.Count - 1} conduit ticks from frame {rpTicks[0].Frame} to {last.Frame}; intake in {intakes} (first at frame {firstFrame}), " +
+                $"{(intakes > 0 ? $"{low:G4} to {high:G4} kg a tick" : "none")}; steady rate after the first intake {steady:G4} kg/s over {ticksAfter} ticks; " +
+                $"rate over the second half {RpLateRate():G4} kg/s; the input cell showed nothing in {emptyShown} ticks" +
+                (Vanilla ? "" : $"; through the adapted machine ports {last.Ports - rpTicks[0].Ports:G6} kg; to other mods' pipe components {last.OtherMod - rpTicks[0].OtherMod:G6} kg; " +
+                $"removals the owner refused {refused} ({refusedKg:G4} kg asked)") + $"; per tick taken {string.Join(" ", rpTicks.Skip(1).Select((t, i) => (t.Taken - rpTicks[i].Taken).ToString("0.###")))}";
+        }
+        private static int rpActiveA, rpActiveB, rpCountedFrame;
         private const int RpWidth = 27;
         private static (int from, int to) RpRoom(char room) => room switch { 'A' => (0, 5), 'B' => (7, 12), 'C' => (14, 17), _ => (19, 26) };
         private static (SimHashes, float, float) RephysicalizedCell(int x, int y)
@@ -117,7 +168,9 @@ namespace MixedAtmospheres.Oni
         {
             if (Once(0, "arena"))
             {
-                rpBurner = rpThin = rpCrop = rpReservoir = rpPress = rpVent = null; rpPipe = new List<int>(); rpActiveA = rpActiveB = 0;
+                rpBurner = rpThin = rpCrop = rpReservoir = rpPress = rpVent = null; rpTicks.Clear();
+                if (rpProbe != null) Game.Instance.liquidConduitFlow.RemoveConduitUpdater(rpProbe);
+                rpProbe = null; rpPipe = new List<int>(); rpActiveA = rpActiveB = 0; rpCountedFrame = -1;
                 if (RephysicalizedCompat.FindType(RephysicalizedCompat.ConsumerTypeName) == null)
                 {
                     Record("Rephysicalized is loaded", false, "Rephysicalized is not loaded: run with --extra-mod-first local/other-mods/src/Rephysicalized " +
@@ -166,9 +219,16 @@ namespace MixedAtmospheres.Oni
                 Pipe(Game.Instance.gasConduitSystem, GasConduitConfig.ID, Route(rpPress.GetComponent<Building>().GetUtilityOutputCell(),
                     Grid.OffsetCell(Grid.PosToCell(rpVent), rpVent!.GetComponent<Building>().Def.UtilityInputOffset)));
             }
-            if (Once(12, "petroleum")) { Store(rpReservoir!, SimHashes.Petroleum, 50); recorded["D petroleum"] = Stored(rpReservoir, SimHashes.Petroleum); }
-            if (frame > 8 && frame < 56)
+            if (Once(12, "petroleum"))
             {
+                // Enough for the press's whole window at 0.8 kg/s (the pipe holds 50 kg of it).
+                Store(rpReservoir!, SimHashes.Petroleum, 120); recorded["D petroleum"] = Stored(rpReservoir, SimHashes.Petroleum);
+                rpProbe = RpPressTick; Game.Instance.liquidConduitFlow.AddConduitUpdater(rpProbe, ConduitFlowPriority.LastPostUpdate);
+            }
+            // Once per owner (or ONI) frame: the scenario runs every Unity frame.
+            if (frame > 8 && frame < 56 && frame != rpCountedFrame)
+            {
+                rpCountedFrame = frame;
                 if (rpBurner != null && rpBurner.GetComponent<Operational>()?.IsActive == true) ++rpActiveA;
                 if (rpThin != null && rpThin.GetComponent<Operational>()?.IsActive == true) ++rpActiveB;
             }
@@ -198,7 +258,7 @@ namespace MixedAtmospheres.Oni
                 var heldB = RpHeld(rpThin); var lostB = recorded["B oxygen"] - RpOxidizer('B'); var ledgerB = RephysicalizedCompat.LedgerOf(RpIntake(rpThin));
                 Record("in thin air the burner stores no oxygen its room did not lose", lostB > 0 && heldB <= lostB + 1e-6 && (Vanilla || ledgerB != null && ledgerB.Credited <= lostB + 1e-6 * recorded["B oxygen"] + 1e-7),
                     $"a cell showed {recorded["B shown"]:G4} kg of gas holding {recorded["B cell oxygen"]:G4} kg oxygen; room {recorded["B oxygen"]:G6} -> {RpOxidizer('B'):G6} kg (lost {lostB:G6}); " +
-                    $"stored {heldB:G6} kg; {RpLedger(rpThin)}; active in {rpActiveB} frames");
+                    $"stored {heldB:G6} kg; {RpLedger(rpThin)}; active in {rpActiveB} of 47 frames");
 
                 // C: the crop.
                 var gasStorage = rpCrop == null ? 0 : RpHeld(rpCrop);
@@ -209,6 +269,11 @@ namespace MixedAtmospheres.Oni
                 Record("the crop's gas buffer filled and it does not starve", consumer != null && gasStorage > .02 && starved is bool hungry && !hungry,
                     $"buffer {gasStorage:G4} kg, starved {starved?.ToString() ?? "unknown"}, wilting {wilting}; {RpLedger(rpCrop)}");
 
+            }
+            // The press runs longer than the other parts, to see its steady intake (about 57 conduit ticks).
+            if (Once(300, "press check"))
+            {
+                if (rpProbe != null) { Game.Instance.liquidConduitFlow.RemoveConduitUpdater(rpProbe); rpProbe = null; }
                 // D: the polymerizer's own pipe intake. What left the reservoir and is no longer in the pipe
                 // reached the press: it holds it, or its converter consumed it (its polypropylene, stored or
                 // dropped as debris in room D, at the petroleum per kg of polypropylene of the press as built).
@@ -219,8 +284,21 @@ namespace MixedAtmospheres.Oni
                 var plastic = Stored(rpPress, SimHashes.Polypropylene) + RpDebris(SimHashes.Polypropylene, 'D');
                 var (perPlastic, otherInputs, recipe) = RpRecipe(rpPress);
                 var converted = plastic * perPlastic;
+                var intakes = string.Join(", ", (rpPress == null ? new Component[0] : rpPress.GetComponents<Component>())
+                    .Where(c => c != null && (c is ConduitConsumer || c.GetType().Name.EndsWith("ConduitConsumer", StringComparison.Ordinal))).Select(c => c.GetType().FullName));
                 Record("the polymerizer's intake took piped petroleum", taken > .1,
-                    $"reservoir {start:G6} -> {left:G6} kg, {piped:G4} kg in the {rpPipe.Count}-segment pipe, so {taken:G6} kg reached the press; {MachineState(rpPress)}");
+                    $"reservoir {start:G6} -> {left:G6} kg, {piped:G4} kg in the {rpPipe.Count}-segment pipe, so {taken:G6} kg reached the press; its intakes {intakes}; {MachineState(rpPress)}");
+                Debug.Log("[Mixed Atmospheres] rephysicalized press intake: " + RpPressIntake());
+                var needed = RpRecipeRates(rpPress).input; var late = RpLateRate();
+                Record("the press takes what its converter uses (rate over the second half within 10 %)", !double.IsNaN(needed) && Math.Abs(late - needed) <= .1 * needed,
+                    $"{late:G4} kg/s against the converter's {needed:G4} kg/s; " + RpPressIntake());
+                if (!Vanilla)
+                {
+                    var first = rpTicks.Count > 0 ? rpTicks[0] : null; var end = rpTicks.Count > 0 ? rpTicks[rpTicks.Count - 1] : null;
+                    var refusedNow = first == null ? 0 : end!.Refused - first.Refused; var otherMod = first == null ? 0 : end!.OtherMod - first.OtherMod;
+                    Record("Rephysicalized's own pipe intake is served and nothing is refused", refusedNow == 0 && otherMod > .1,
+                        $"to other mods' pipe components {otherMod:G6} kg, refused removals {refusedNow}; through the game's own intake {(end?.Ports ?? 0) - (first?.Ports ?? 0):G6} kg");
+                }
                 Record("what the press took is in it or its converter consumed it (within 0.01 kg + 0.5 %)", !double.IsNaN(perPlastic) && Math.Abs(pressHeld + converted - taken) <= .01 + .005 * taken,
                     $"the press holds {pressHeld:G6} kg petroleum and made {plastic:G6} kg polypropylene, at {perPlastic:G4} kg petroleum per kg {converted:G6} kg petroleum; " +
                     $"{pressHeld + converted:G6} kg against {taken:G6} kg taken" + (otherInputs.Length != 0 ? $"; that converter also consumes {otherInputs}" : "") + $"; converters {recipe}");
