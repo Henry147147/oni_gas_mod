@@ -58,7 +58,7 @@ namespace MixedAtmospheres.Oni
             Current.Name = name;
             if (Current.Finished) return true;
             if (status.CompletedFrames == 0) return false;
-            if (started == 0) { started = status.CompletedFrames; Anchor(name); }
+            if (started == 0) { started = status.CompletedFrames; Anchor(); }
             var frame = (int)(status.CompletedFrames - started);
             try
             {
@@ -2418,11 +2418,9 @@ namespace MixedAtmospheres.Oni
 
         // ---- helpers
 
-        private static void Anchor(string scenario)
+        private static void Anchor()
         {
-            var pad = scenario == "mixed-pipe-disconnected-save"
-                ? GameUtil.GetTelepad(ClusterManager.Instance.GetStartWorld().id)
-                : GameUtil.GetActiveTelepad();
+            var pad = GameUtil.GetActiveTelepad();
             var cell = pad != null ? Grid.PosToCell(pad) : Grid.XYToCell(Grid.WidthInCells / 2, Grid.HeightInCells / 2);
             Grid.CellToXY(cell, out var px, out var py);
             x0 = px + 9 + 11 * index + extraShift; y0 = py;

@@ -7,30 +7,13 @@ namespace MixedAtmospheres.Oni
         private static void MixedPipeDisconnectedSave(int frame)
         {
             var flow = Game.Instance.liquidConduitFlow;
-            var cell = Cell(3, 3);
-            var removedCell = Cell(5, 3);
             if (ColonyRuntimeValidation.Settings?.Mode == "colony-owner-load")
             {
-                if (Once(2, "check the loaded broken pipe and repair it"))
-                {
-                    var building = Grid.Objects[cell, (int)ObjectLayer.LiquidConduit];
-                    Record("pipe reloads disconnected", building.GetComponent<Conduit>().IsDisconnected() && !flow.HasConduit(cell),
-                        $"Live {flow.HasConduit(cell)}");
-                    Record("disconnected mixture reloads", HasDisconnectedFixtureMixture(flow, cell), "3 kg water and 7 kg polluted water");
-                    Record("removed pipe was rehomed outside the conduit", ColonyConduits.TryRead(flow, removedCell, out var removed) && removed.Count == 0,
-                        $"Removed pipe contents {removed.Mass:R} kg");
-                    var hp = building.GetComponent<BuildingHP>();
-                    hp.Repair(hp.MaxHitPoints);
-                }
-                if (Once(8, "check the repaired pipe"))
-                {
-                    Record("repaired pipe rejoins with its mixture", flow.HasConduit(cell) && HasDisconnectedFixtureMixture(flow, cell),
-                        $"Live {flow.HasConduit(cell)}");
-                    Record("pipe accounts close after reload and repair", ColonyConduits.Audit(out var detail), detail);
-                    Finish();
-                }
+                RepairDisconnectedFixture(flow);
                 return;
             }
+            var cell = Cell(3, 3);
+            var removedCell = Cell(5, 3);
             if (Once(0, "prepare a pipe save arena"))
                 Arena((x, y) => (SimHashes.Oxygen, 1f, 300f));
             if (Once(5, "build two isolated liquid pipes"))
@@ -56,6 +39,35 @@ namespace MixedAtmospheres.Oni
                 Record("removal bypassed the scalar dump", !flow.HasConduit(removedCell) && HasDisconnectedFixtureMixture(flow, removedCell),
                     $"Live {flow.HasConduit(removedCell)}");
                 Record("pipe accounts close before saving", ColonyConduits.Audit(out var detail), detail);
+                Finish();
+            }
+        }
+
+        private static void RepairDisconnectedFixture(ConduitFlow flow)
+        {
+            if (Once(2, "check the loaded broken pipe and repair it"))
+            {
+                // The saved arena can be on a different asteroid from the camera.
+                // This fixture creates only one pipe that keeps the 3/7 kg mixture.
+                var cell = 0;
+                while (cell < Grid.CellCount && !HasDisconnectedFixtureMixture(flow, cell)) ++cell;
+                var pipe = cell < Grid.CellCount ? ColonyConduits.PipeBuilding(flow, cell) : null;
+                Record("disconnected mixture reloads", pipe != null, "3 kg water and 7 kg polluted water in a pipe building");
+                if (pipe == null) { Finish(); return; }
+                Record("pipe reloads disconnected", pipe.IsDisconnected() && !flow.HasConduit(cell), $"Live {flow.HasConduit(cell)}");
+                var removedCell = Grid.CellRight(Grid.CellRight(cell));
+                Record("removed pipe was rehomed outside the conduit", ColonyConduits.TryRead(flow, removedCell, out var removed) && removed.Count == 0,
+                    $"Removed pipe contents {removed.Mass:R} kg");
+                recorded["repaired pipe cell"] = cell;
+                var hp = pipe.GetComponent<BuildingHP>();
+                hp.Repair(hp.MaxHitPoints);
+            }
+            if (Once(8, "check the repaired pipe"))
+            {
+                var cell = (int)recorded["repaired pipe cell"];
+                Record("repaired pipe rejoins with its mixture", flow.HasConduit(cell) && HasDisconnectedFixtureMixture(flow, cell),
+                    $"Live {flow.HasConduit(cell)}");
+                Record("pipe accounts close after reload and repair", ColonyConduits.Audit(out var detail), detail);
                 Finish();
             }
         }
