@@ -217,7 +217,54 @@ internal static class Program
                     Check(rejected, "The complete malformed control escaped its required guard: " + name);
                 }
             });
-            Check(Passed.Count == 64, "Unexpected complete group count: " + Passed.Count);
+            Test("streams of .NET's zlib (Moono's fast-save-compression) at every level", () =>
+            {
+                // Moono writes saves with System.IO.Compression.ZLibStream
+                // (zlib-ng), not the game's Ionic.Zlib: other block structure,
+                // another FLG byte per level (docs/game-update-resilience.md#moono).
+                var random = new Random(764025);
+                byte[] Body(int bytes)
+                {
+                    var body = new byte[bytes];
+                    for (int at = 0; at < bytes; at += 4096)
+                    {
+                        int run = Math.Min(4096, bytes - at);
+                        if (at / 4096 % 3 == 0) random.NextBytes(body.AsSpan(at, run)); // incompressible runs
+                        else for (int i = 0; i < run; i++) body[at + i] = (byte)((at + i) * 7 / 13 % 251); // repetitive cells
+                    }
+                    return body;
+                }
+                byte[] Compress(byte[] body, System.IO.Compression.CompressionLevel level, bool flushes)
+                {
+                    using var output = new MemoryStream();
+                    using (var zlib = new System.IO.Compression.ZLibStream(output, level, true))
+                        for (int at = 0; at < body.Length; at += 1 << 20)
+                        {
+                            zlib.Write(body, at, Math.Min(1 << 20, body.Length - at));
+                            if (flushes) zlib.Flush(); // sync flushes leave empty stored blocks
+                        }
+                    return output.ToArray();
+                }
+                var flags = new HashSet<byte>();
+                foreach (var level in Enum.GetValues<System.IO.Compression.CompressionLevel>())
+                    foreach (int size in new[] { 1, 70_000, 9 << 20 })
+                        foreach (bool flushes in new[] { false, true })
+                        {
+                            var body = Body(size);
+                            var stream = Compress(body, level, flushes);
+                            flags.Add(stream[1]);
+                            var result = Inspect(stream);
+                            Check(result.BodyImage.Length == body.Length && result.BodyImage.HashSlice(0, body.Length) == Sha(body),
+                                $"ZLibStream {level} {size} bytes{(flushes ? " with flushes" : "")} did not inflate to its body");
+                            Check(result.ValidatedCompressedBytes == stream.Length && result.Adler32 == Trailer(stream));
+                            Denials(result);
+                            // A save body behind its header, as in a save file.
+                            var file = Join(new byte[] { 1, 2, 3, 4, 5, 6, 7 }, stream);
+                            Check(Inspect(file, 7, stream.Length).BodyImage.HashSlice(0, body.Length) == Sha(body));
+                        }
+                Check(flags.Count >= 3, "Expected the levels to write different zlib FLG bytes, found " + string.Join(",", flags));
+            });
+            Check(Passed.Count == 65, "Unexpected complete group count: " + Passed.Count);
             Console.WriteLine(JsonSerializer.Serialize(new { Passed = true, Groups = Passed.Count, Names = Passed,
                 Decoder = SavedZlibInflationInspector.Decoder, NativeSimInvoked = false,
                 WholeFilePreflightProven = false, OwnedRestorePermitted = false, WriterPermission = false, FirstPlayableColonyPassed = false }));

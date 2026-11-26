@@ -8,6 +8,22 @@ still require separate authorization.
 
 Amendments:
 
+- **Moono, user request 2026-11-26:** the user asked to "add support for
+  https://github.com/tigin-backwards/oni-moono#setup, you will likely have
+  to double the testing to cover with and without moono", as version 1.15.0.
+  The admission rule is the working session's design for it (the user can
+  tighten it). On Moono the game's identity is its files: the SHA-256 of
+  `Assembly-CSharp.dll` and `Assembly-CSharp-firstpass.dll` must be the
+  contract's, and the contract is read by member keys, since Moono's loader
+  renumbers the mod's metadata. With the files matching, a game method whose
+  code Moono rewrote at load is accepted and counted in Player.log; every
+  other property of game types must match. Moono's own Unity is checked for
+  presence and signature only. Patches of Moono's tweaks are reported like
+  other mods' and never refuse. Every refusal and the verified line name
+  the Moono release. On Unity's player the token check stays the authority,
+  and its control proves the key path entry by entry on every package
+  ([Moono](game-update-resilience.md#moono)).
+
 - **Running beside other mods' patches, user request 2026-11-26:** the user
   asked to "get my mod working with the other mod: Rephysicalized ... ensure
   they can both run and load at the same time". Rephysicalized patches 16

@@ -180,6 +180,8 @@ namespace MixedAtmospheres.Oni
         // cannot read as a Mixed Atmospheres save is left to ONI's own loader.
         internal static string? LoadRefusal(string filename)
         {
+            var unfinished = UnfinishedSave(filename);
+            if (unfinished != null) return unfinished;
             var reason = EnvelopeRefusal(filename, out var mixture, out var complete);
             if (!mixture) return null;
             var packs = GameplayPacks.ActiveUnsupported();
@@ -187,6 +189,18 @@ namespace MixedAtmospheres.Oni
             // A catalogue refusal is a whole text of its own: the build is not its cause.
             return reason == null || complete ? reason : "This colony was saved by a Mixed Atmospheres build that this one cannot continue, so it was not loaded. " +
                 "The save has not been changed.\n\n" + reason;
+        }
+
+        // Null once no background write of the save is pending (Moono,
+        // PendingSaveWrite), after waiting for one; otherwise the refusal.
+        internal static string? UnfinishedSave(string filename)
+        {
+            if (PendingSaveWrite.Wait(filename, out var waited))
+            {
+                if (waited > 0) UnityEngine.Debug.Log($"[Mixed Atmospheres] Waited {waited} ms for the background write of {Path.GetFileName(filename)} to finish before reading it.");
+                return null;
+            }
+            return ModAdmission.UnfinishedSaveRefusal(filename);
         }
 
         // Whether a save file holds a Mixed Atmospheres colony (its native

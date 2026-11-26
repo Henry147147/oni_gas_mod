@@ -382,6 +382,123 @@ had patched those methods.
   `linux-resume-refused` and requires the refusal for changed game code,
   the guard and the refused save.
 
+## Moono
+
+[Moono](https://github.com/tigin-backwards/oni-moono) replaces the game's
+Unity player: it runs Klei's own DLLs on CoreCLR (.NET 10) with its own
+reimplementation of Unity, TextMeshPro, uGUI and Timeline. A player's
+Player.log with 1.13.9 on Moono (2026-11-26) showed the mod refused with
+2,730 "changed" parts such as `changed UnityEngine.Color -> UnityEngine.Texture`.
+The game was the supported build; the check read the wrong members. Support
+was a user request of 2026-11-26 ([amendment](completion-plan.md)).
+
+- **What Moono changes.** Its loader re-emits every mod assembly (a chain of
+  Mono.Cecil passes) and loads the image from memory: the file, its
+  `Assembly.Location` and the module version ID stay, but the TypeRef,
+  TypeSpec and MemberRef rows are renumbered, so a contract token names an
+  unrelated member. A Cecil read and write of the mod alone reproduces the
+  player's log (2,731 differences against 2,730). The game's
+  `Assembly-CSharp` and `Assembly-CSharp-firstpass` are unchanged on disk
+  but re-emitted at load: conversions of floats to integers become calls of
+  `OniMoono.Host.MonoConversions`, delegates handed to native code are kept
+  alive, thread-abort catch blocks get a call at their end, and the optional
+  nav-grid and path-grid tweaks rewrite more. `Assembly.Location` still
+  reports the file (a Harmony postfix of Moono's host). Methods it does not
+  rewrite keep their IL byte for byte. Unity's types come from
+  `OniMoono.UnityEngine`; Unity's own modules are never loaded.
+- **Detection.** Moono has no mod API. `MoonoHost` reads its markers: Unity's
+  `Object` is defined in the assembly `OniMoono.UnityEngine`; the host
+  assembly `OniMoono` carries the release as `[AssemblyMetadata("MoonoRelease")]`
+  and the source commit in its informational version; Moono's tweaks and host
+  fixes are Harmony owners `OniMoono.Host.GameTweaks.<name>` and
+  `OniMoono.Host.*`. Player.log at `Mod.OnLoad`:
+  `[Mixed Atmospheres] Running on Moono <release> (commit <commit>, .NET <version>): the game contract is checked by member keys and the game's files ...`.
+- **What is verified there.** First the game's files: the SHA-256 of the
+  files `Assembly-CSharp.dll` and `Assembly-CSharp-firstpass.dll` (the
+  contract carries both per platform; `FirstpassSha256` is new in 1.15.0 and
+  empty in older contracts) must be the contract's. A different file refuses
+  with the usual "game's code differs" notice. Then every contract entry is
+  found by its canonical key instead of its token (`GameContractCheck.IndexByKey`:
+  the loaded mod's TypeRef, TypeSpec and MemberRef rows, each member under
+  every generic context a method of the mod gives it; a type that only an
+  attribute names, whose row Cecil's writer drops, by its name). A key not
+  found is `missing`. For the pinned game assemblies, presence, signatures
+  (the keys), enum literals, constants and struct layouts must match; a
+  game method whose body differs is accepted as Moono's rewrite at load and
+  counted. Named lookups on game types carry a second form, `Shape`
+  (`GameContractScope.NamedShape`): the members the game's assemblies
+  declare, with every method body as `body`. Under Moono a named entry must
+  match that form. Everything else is Moono's engine (decided by whether the
+  assembly is one of the two files the contract pins, not by name): its
+  types and members are checked for presence and signature only, because
+  Moono's Unity need not have Unity's private layouts, enum members or
+  member lists. `UnityEngine.TextClipping`, for one, has no `Ellipsis` there.
+  A named lookup Moono's engine lacks (`absent`) still refuses.
+- **What is tolerated, measured offline.** Against Moono's own rewritten
+  `Assembly-CSharp` of build 764025 (from a run's conversion cache) and the
+  engine of the release in `local/moono/release`, with the mod read and
+  written by Cecil: 0 differences, 47 game entries whose code Moono
+  rewrote (14 called members, 10 named lookups, 23 patch targets; float
+  conversions in all, `MonoMarshalledDelegates.Keep` in
+  `SaveLoader.LoadFromWorldGen`, `MonoThreadAbort.CatchEnd` in it,
+  `GeneratedBuildings.LoadGeneratedBuildings` and `MainMenu.OnSpawn`), and
+  41 engine entries checked for presence and signature only (the layouts of
+  `RaycastResult`, `Scene` and `NativeArray<T>`, the `TextClipping` enum,
+  `Scene.handle`'s type, `SceneManager`'s member list and 35 member lists
+  of game types that inherit from Moono's `MonoBehaviour`). Of the mod's
+  transpilers only the one on `ConduitFlow.UpdateConduit` meets rewritten
+  code, and there each conversion became one call in its place, so its
+  pattern and local layout are unchanged. The transpilers and IL witnesses
+  already fail loudly where a colony needs them (the mod's start is undone
+  with a notice) and softly where it does not (a Player.log warning and the
+  game's behaviour).
+- **Player.log.** The verified line says `Game build N verified on Moono <release>`
+  and adds the count of rewritten and engine entries, the first 20 of each
+  (all of them in a development package). Patches of Moono's tweaks on
+  methods the mod uses are listed like [other mods'](#other-mods), as
+  `<- Moono (Harmony: OniMoono.Host.GameTweaks....)`, and never refuse.
+  Every refusal says `on Moono <release>`. When the files match but other
+  parts differ (a Moono release that lacks something the mod uses), the
+  notice says so and suggests the previous Moono release or the game
+  without Moono instead of verifying the game's files.
+- **The Mono control.** On the original player the token path stays the
+  authority. `GameContractCheck.SelfCheck` (`tools/game_mono_contract_check.py`,
+  also with `--other-mod`) also resolves every entry by its key and requires
+  the same key and value entry by entry and the same differences; a
+  disagreement counts as a difference. The first line ends `key path agrees`.
+  Offline, `tools/GameContract verify --by-key [--files-of ROOT] [--mod-assembly DLL]`
+  runs Moono's mode on any installation folder.
+- **Engine members the mod no longer names.** Moono replaces every
+  instruction that names a member its engine lacks by a throw. 1.15.0 names
+  none: `Time.captureDeltaTime` left a validation report, `Scene.handle`
+  is read by reflection (Unity's returns `SceneHandle`, Moono's an `int`),
+  and `SceneManager.Internal_SceneUnloaded` is looked up by a name built at
+  run time (the contract then pins `SceneManager`'s whole member list). All
+  three were in validation modes only. The owned-load boundary
+  (`load-rejection` validation) cannot run on Moono: it needs Unity's own
+  engine module by hash and refuses there with that reason.
+- **Frame timing.** Moono's delta time is the real time between frames, so
+  the V-Sync clock repair ([settings](settings.md), `performance.frameTimingFix`)
+  stays off and says so once in Player.log; the performance log keeps its
+  timing columns.
+- **Saves.** Moono's `background-save` (on by default) leaves only the
+  header in a save until the finished `<save>.writing` is moved over it.
+  Before the load checks read a save (menu load, resume, the load guard, the
+  native-domain validation's readback) they wait up to 45 s for that file
+  to go (`PendingSaveWrite`), and otherwise refuse with "still being
+  written". Its `fast-save-compression` writes .NET's zlib (zlib-ng) instead
+  of Ionic.Zlib; the save reader inflates it at every `CompressionLevel`, with
+  sync flushes too (`tools/OwnedReservoirInflationTests`). Moono measured
+  its compressed saves about 14% larger, which brings large colonies closer
+  to the reader's 64 MiB compressed and 256 MiB body bounds.
+- **Limits.** Moono releases change often and are not pinned: a release is
+  supported for as long as its files and members meet the rule above, and
+  the offline numbers are those of one release and build 764025. Only Linux
+  Moono can be run here; Moono on Windows, and the game under Proton with
+  Moono, cannot be tested. The native libraries are expected to load as on
+  Unity (they are preloaded by absolute path and the mod never sets a
+  `DllImport` resolver); only a game run shows it.
+
 ## Refusals
 
 Each refusal has its own text (`ModAdmission`, unit controls in
@@ -395,6 +512,8 @@ report it.
 | The game is a build this copy has no adapter for | Nothing patched except the verified load guard; notice names both builds and says a Mixed Atmospheres update is needed (or, for an older game, a game update) |
 | Supported build, and the only differences are [other mods' patches](#other-mods) on verified methods | No refusal: the mod starts; Player.log names the patched methods and the mods; no notice |
 | Supported build number, but the game's code or `SimDLL` differs (also beside other mods' patches) | Nothing patched except the verified load guard; notice lists the first parts by short name, asks to disable other mods and verify the game's files, or to report it |
+| On [Moono](#moono): the game's files are the build's, but parts the mod uses differ under that Moono release | Nothing patched except the verified load guard; notice names the parts and suggests the previous Moono release or the game without Moono |
+| A save still being written by Moono's background save after 45 s | The colony is not loaded and the save is unchanged; the text says to wait until the game has finished saving |
 | The mod's own files do not belong together (contract missing or of another build, native library of another build) | The same; notice asks to reinstall the mod |
 | The check itself failed | The same; notice gives the error and where to report it |
 | Second copy of the mod enabled | Second copy patches nothing; notice asks the player to keep one |
@@ -409,6 +528,9 @@ dotnet run --project tools/GameContract -c Release -- generate --mod DIR \
   --game windows-x64=WINDOWS_ROOT --game linux-x64=LINUX_ROOT --output DIR/game-contract.json
 dotnet run --project tools/GameContract -c Release -- verify   --mod DIR --game linux-x64=ROOT --contract DIR/game-contract.json
 dotnet run --project tools/GameContract -c Release -- controls --mod DIR --game linux-x64=ROOT --contract DIR/game-contract.json
+# Moono's mode (docs above): by key, the game assemblies pinned by the files of --files-of
+dotnet run --project tools/GameContract -c Release -- verify   --mod DIR --game linux-x64=ROOT --contract DIR/game-contract.json \
+  --by-key [--files-of ORIGINAL_ROOT] [--mod-assembly REWRITTEN_DLL]
 python3 tools/game_mono_contract_check.py --mod DIR [--managed-game WINDOWS_ROOT --platform windows-x64]
 python3 tools/game_mono_contract_check.py --mod DIR --other-mod           # control: a mod that patched first is accepted
 python3 tools/game_mono_contract_check.py --mod DIR --other-mod removed   # control: a patch removed again refuses

@@ -18,7 +18,7 @@ static class Program
     static int Main(string[] args)
     {
         if (args.Length == 0) return Usage();
-        string? modDirectory = null, output = null, contract = null, packageVersion = null; var raw = false;
+        string? modDirectory = null, output = null, contract = null, packageVersion = null, modAssembly = null, filesOf = null; var raw = false; var byKey = false;
         var games = new List<(string platform, string root)>();
         for (var i = 1; i < args.Length; ++i)
         {
@@ -30,6 +30,17 @@ static class Program
                 case "--contract": contract = Next(); break;
                 case "--package-version": packageVersion = Next(); break;
                 case "--raw": raw = true; break;
+                // Moono's way (docs/game-update-resilience.md#moono): entries by
+                // key, and the game's Assembly-CSharp(-firstpass) pinned only by
+                // their files when the game's own files match the contract.
+                case "--by-key": byKey = true; break;
+                // Another copy of MixedAtmospheres.Oni.dll to check (a rewritten
+                // one, as Moono's loader emits it); the contract stays --mod's.
+                case "--mod-assembly": modAssembly = Next(); break;
+                // With --by-key: the installation whose files the loaded game
+                // assemblies report as theirs (Moono loads rewritten images of
+                // unchanged files; Assembly.Location stays the file's).
+                case "--files-of": filesOf = Next(); break;
                 case "--game":
                     var value = Next(); var split = value.IndexOf('=');
                     if (split <= 0) throw new ArgumentException("--game expects windows-x64=DIR or linux-x64=DIR");
@@ -39,12 +50,12 @@ static class Program
         }
         if (modDirectory == null || games.Count == 0 || games.Any(g => g.platform is not ("windows-x64" or "linux-x64")) ||
             games.Select(g => g.platform).Distinct().Count() != games.Count) return Usage();
-        var modPath = Path.GetFullPath(Path.Combine(modDirectory, "MixedAtmospheres.Oni.dll"));
+        var modPath = Path.GetFullPath(modAssembly ?? Path.Combine(modDirectory, "MixedAtmospheres.Oni.dll"));
         switch (args[0])
         {
             case "generate" when output != null: return Generate(modPath, games, output, raw, packageVersion);
-            case "verify" when contract != null: return Verify(modPath, games, contract, controls: false);
-            case "controls" when contract != null: return Verify(modPath, games, contract, controls: true);
+            case "verify" when contract != null: return Verify(modPath, games, contract, controls: false, byKey, filesOf);
+            case "controls" when contract != null: return Verify(modPath, games, contract, controls: true, byKey, filesOf);
             default: return Usage();
         }
     }
@@ -52,11 +63,11 @@ static class Program
     static int Usage()
     {
         Console.Error.WriteLine("usage: GameContract generate --mod DIR --game windows-x64=ROOT [--game linux-x64=ROOT] --output FILE [--raw]\n" +
-                                "       GameContract verify|controls --mod DIR --game PLATFORM=ROOT --contract FILE");
+                                "       GameContract verify|controls --mod DIR --game PLATFORM=ROOT --contract FILE [--by-key [--files-of ROOT]] [--mod-assembly DLL]");
         return 2;
     }
 
-    sealed record Host(Assembly Mod, Type Check, int Build, string AssemblyHash);
+    sealed record Host(Assembly Mod, Type Check, int Build, string AssemblyHash, string FirstpassHash, Assembly Game, Assembly? Firstpass);
 
     static Host Load(string modPath, string platform, string root)
     {
@@ -65,20 +76,28 @@ static class Program
         if (!File.Exists(gameAssembly)) throw new FileNotFoundException("Not an ONI installation", gameAssembly);
         // Not collectible: Harmony generates code that collectible contexts refuse.
         var context = new AssemblyLoadContext("oni-" + platform);
+        var modDirectory = Path.GetDirectoryName(modPath)!;
         context.Resolving += (loader, name) =>
         {
             var simple = name.Name ?? "";
             if (simple is "mscorlib" or "netstandard" || simple == "System" || simple.StartsWith("System.", StringComparison.Ordinal) ||
                 simple.StartsWith("Microsoft.", StringComparison.Ordinal)) return null;
             var candidate = simple.StartsWith("MixedAtmospheres.", StringComparison.Ordinal)
-                ? Path.Combine(Path.GetDirectoryName(modPath)!, simple + ".dll") : Path.Combine(managed, simple + ".dll");
+                ? Path.Combine(modDirectory, simple + ".dll") : Path.Combine(managed, simple + ".dll");
             return File.Exists(candidate) ? loader.LoadFromAssemblyPath(candidate) : null;
         };
         var game = context.LoadFromAssemblyPath(gameAssembly);
         var build = Convert.ToInt32(game.GetType("KleiVersion", true)!.GetField("ChangeList")!.GetRawConstantValue());
         var mod = context.LoadFromAssemblyPath(modPath);
-        using var stream = File.OpenRead(gameAssembly);
-        return new Host(mod, mod.GetType("MixedAtmospheres.Oni.GameContractCheck", true)!, build, Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant());
+        var firstpass = Path.Combine(managed, "Assembly-CSharp-firstpass.dll");
+        var firstpassAssembly = File.Exists(firstpass) ? context.LoadFromAssemblyName(new AssemblyName("Assembly-CSharp-firstpass")) : null;
+        return new Host(mod, mod.GetType("MixedAtmospheres.Oni.GameContractCheck", true)!, build, FileHash(gameAssembly), File.Exists(firstpass) ? FileHash(firstpass) : "", game, firstpassAssembly);
+    }
+
+    static string FileHash(string path)
+    {
+        using var stream = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(stream)).ToLowerInvariant();
     }
 
     static object? Call(Type type, string name, params object?[] arguments)
@@ -122,7 +141,7 @@ static class Program
                 if (!Equals(compiled, host.Build) || version != packageVersion)
                     throw new InvalidDataException($"Adapter targets game {compiled}, mod {version}. Packaging requires game {host.Build}, mod {packageVersion}.");
             }
-            var node = JsonNode.Parse((string)Call(host.Check, "Generate", host.Mod, host.Build, host.AssemblyHash, raw)!)!;
+            var node = JsonNode.Parse((string)Call(host.Check, "Generate", host.Mod, host.Build, host.AssemblyHash, host.FirstpassHash, raw)!)!;
             file["ModuleVersionId"] = host.Mod.ManifestModule.ModuleVersionId.ToString("D");
             file["Platforms"]![platform] = node;
             var entries = node["Entries"]!.AsArray();
@@ -141,27 +160,52 @@ static class Program
         var entryType = host.Mod.GetType("MixedAtmospheres.Oni.GameContractEntry", true)!;
         var platform = Activator.CreateInstance(platformType, true)!;
         platformType.GetField("GameBuild")!.SetValue(platform, (int)node["GameBuild"]!);
+        foreach (var name in new[] { "AssemblyCSharpSha256", "FirstpassSha256" }) platformType.GetField(name)!.SetValue(platform, (string?)node[name] ?? "");
         var entries = (System.Collections.IList)platformType.GetField("Entries")!.GetValue(platform)!;
         foreach (var item in node["Entries"]!.AsArray())
         {
             var entry = Activator.CreateInstance(entryType, true)!;
             foreach (var name in new[] { "Kind", "TypeName", "Name", "Key", "Value" }) entryType.GetField(name)!.SetValue(entry, (string)item![name]!);
+            entryType.GetField("Shape")!.SetValue(entry, (string?)item!["Shape"] ?? "");
             foreach (var name in new[] { "Token", "Context" }) entryType.GetField(name)!.SetValue(entry, (int)item![name]!);
             entries.Add(entry);
         }
         return platform;
     }
 
-    static List<string> Differences(Host host, JsonNode platform, out int checkedEntries, out double milliseconds)
+    // Moono's mode (--by-key): the mod's VerifyMode with ByKey and, when the
+    // installation's game files match the contract's hashes, those two
+    // assemblies pinned (the tolerances Mod.OnLoad applies on Moono).
+    static object? Mode(Host host, JsonNode platform, bool byKey, string? filesOf)
     {
-        var arguments = new object?[] { Platform(host, platform), host.Mod, 0, null }; // the last: no record of other mods' patches
+        if (!byKey) return null;
+        var managed = filesOf == null ? null : Path.Combine(filesOf, "OxygenNotIncluded_Data", "Managed");
+        var gameHash = managed == null ? host.AssemblyHash : FileHash(Path.Combine(managed, "Assembly-CSharp.dll"));
+        var firstpassHash = managed == null ? host.FirstpassHash : FileHash(Path.Combine(managed, "Assembly-CSharp-firstpass.dll"));
+        var modeType = host.Mod.GetType("MixedAtmospheres.Oni.GameContractCheck+VerifyMode", true)!;
+        var mode = Activator.CreateInstance(modeType, true)!;
+        modeType.GetField("ByKey", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(mode, true);
+        var pinned = new HashSet<Assembly>();
+        if ((string?)platform["AssemblyCSharpSha256"] == gameHash) pinned.Add(host.Game);
+        if (host.Firstpass != null && (string?)platform["FirstpassSha256"] == firstpassHash) pinned.Add(host.Firstpass);
+        modeType.GetField("Pinned", BindingFlags.NonPublic | BindingFlags.Instance)!.SetValue(mode, new Func<Assembly, bool>(pinned.Contains));
+        Console.WriteLine($"  by key; pinned by file: {string.Join(", ", pinned.Select(a => a.GetName().Name))}");
+        return mode;
+    }
+
+    static List<string> ModeList(object? mode, string field) => mode == null ? new List<string>() :
+        (List<string>)mode.GetType().GetField(field, BindingFlags.NonPublic | BindingFlags.Instance)!.GetValue(mode)!;
+
+    static List<string> Differences(Host host, JsonNode platform, out int checkedEntries, out double milliseconds, object? mode = null)
+    {
+        var arguments = new object?[] { Platform(host, platform), host.Mod, 0, null, mode }; // null: no record of other mods' patches
         var timer = Stopwatch.StartNew();
         var differences = ((IEnumerable<string>)Call(host.Check, "Verify", arguments)!).ToList();
         milliseconds = timer.Elapsed.TotalMilliseconds; checkedEntries = (int)arguments[2]!;
         return differences;
     }
 
-    static int Verify(string modPath, List<(string platform, string root)> games, string contractPath, bool controls)
+    static int Verify(string modPath, List<(string platform, string root)> games, string contractPath, bool controls, bool byKey, string? filesOf)
     {
         var file = JsonNode.Parse(File.ReadAllText(contractPath))!;
         var failures = 0;
@@ -172,12 +216,19 @@ static class Program
             if ((string)file["ModuleVersionId"]! != host.Mod.ManifestModule.ModuleVersionId.ToString("D"))
             { Console.WriteLine($"{platform}: the contract belongs to a different mod assembly"); ++failures; continue; }
             var node = file["Platforms"]?[platform] ?? throw new InvalidDataException("No contract for " + platform);
-            var differences = Differences(host, node, out var count, out var ms);
+            var mode = Mode(host, node, byKey, filesOf);
+            var differences = Differences(host, node, out var count, out var ms, mode);
             var timings = (System.Collections.Generic.Dictionary<string, double>)host.Check.GetField("Timings", BindingFlags.NonPublic | BindingFlags.Static)!.GetValue(null)!;
             Console.WriteLine($"{platform}: build {host.Build}, {count} dependencies checked in {ms:F0} ms (" +
                 string.Join(", ", timings.Select(t => $"{t.Key} {t.Value:F0} ms")) + $"), {differences.Count} differences");
             foreach (var difference in differences.Take(50)) Console.WriteLine("  " + difference);
+            foreach (var (field, what) in new[] { ("Rewritten", "game entries whose code differs from the files' (Moono's rewrite at load)"), ("Engine", "engine entries checked for presence and signature only") })
+            {
+                var list = ModeList(mode, field);
+                if (mode != null) Console.WriteLine($"  {list.Count} {what}" + string.Concat(list.Select(k => "\n    " + k)));
+            }
             if (differences.Count != 0) { ++failures; continue; }
+            // The synthetic changes test the token path, the authority on Unity's player.
             if (controls) failures += Controls(host, platform, node);
         }
         return failures == 0 ? 0 : 1;

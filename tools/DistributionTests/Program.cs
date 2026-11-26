@@ -117,6 +117,44 @@ static class Program
         foreach (var refusal in new[] { newer, older, files, native, installation, failed })
             Check(refusal.Kind.Length != 0 && refusal.Details.Count != 0 && refusal.Notice.Contains("can be loaded again once") &&
                 refusal.LoadRefusal.StartsWith("This colony uses Mixed Atmospheres, which is not active ", StringComparison.Ordinal), "complete refusal: " + refusal.Kind);
+        MoonoRefusals();
+    }
+
+    // On Moono every refusal says so (docs/game-update-resilience.md#moono).
+    private static void MoonoRefusals()
+    {
+        ModAdmission.Host = " on Moono v2026.11.20.01";
+        try
+        {
+            var files = ModAdmission.GameFiles(764025, new[] { "changed game file Assembly-CSharp.dll (SHA-256 aa, build 764025 has bb)" });
+            Check(files.Notice.StartsWith("Mixed Atmospheres is not active on Moono v2026.11.20.01. Your game reports a version the mod supports (build 764025)", StringComparison.Ordinal) &&
+                files.Notice.Contains("  - changed game file Assembly-CSharp.dll") && files.Details[0] == "running on Moono v2026.11.20.01" &&
+                files.LoadRefusal.Contains("supported build 764025 on Moono v2026.11.20.01, so it was not loaded"), files.Notice + "\n" + files.LoadRefusal);
+            var moono = ModAdmission.MoonoDiffers(764025, new[] { "missing static UnityEngine.Time::get_captureDeltaTime()System.Single (gone)", "changed UnityEngine.KeyCode" });
+            Check(moono.Notice.StartsWith("Mixed Atmospheres is not active on Moono v2026.11.20.01. The game's files are those of build 764025, which the mod supports, but 2 parts the mod uses differ under this Moono release:", StringComparison.Ordinal) &&
+                moono.Notice.Contains("  - UnityEngine.Time.get_captureDeltaTime (missing)") && moono.Notice.Contains("start the game without Moono") &&
+                moono.Notice.Contains("github.com/Henry147147/oni_gas_mod/issues") && !moono.Notice.Contains("Verify integrity"), moono.Notice);
+            Check(moono.LoadRefusal.StartsWith("This colony uses Mixed Atmospheres, which is not active on Moono v2026.11.20.01 (this Moono release", StringComparison.Ordinal) &&
+                moono.Details.Count == 3 && moono.Details[0] == "running on Moono v2026.11.20.01; the game's files match build 764025", moono.LoadRefusal);
+            foreach (var refusal in new[] { ModAdmission.UnsupportedBuild("1.15.0", 770001, 764025), ModAdmission.Installation("x"), ModAdmission.CheckFailed("x") })
+                Check(refusal.Notice.Contains("on Moono v2026.11.20.01") && refusal.LoadRefusal.Contains("on Moono v2026.11.20.01") &&
+                    refusal.Details.Any(d => d.Contains("on Moono v2026.11.20.01")), "Moono in every refusal: " + refusal.Kind);
+            Check(ModAdmission.StartFailure("boom").StartsWith("Mixed Atmospheres could not start on Moono v2026.11.20.01 and has removed", StringComparison.Ordinal), "start failure on Moono");
+        }
+        finally { ModAdmission.Host = ""; }
+        Check(!ModAdmission.GameFiles(764025, new[] { "x" }).Notice.Contains("Moono"), "no Moono wording on Unity's player");
+
+        // Background save: a save with "<save>.writing" beside it is read only once that is gone.
+        var present = new HashSet<string> { "/s/Colony.sav.writing" };
+        var sleeps = 0;
+        Check(PendingSaveWrite.Wait("/s/Other.sav", out var none, 1000, present.Contains, _ => ++sleeps) && none == 0 && sleeps == 0, "no pending write, no wait");
+        Check(PendingSaveWrite.Wait("/s/Colony.sav", out _, 10_000, path => { if (sleeps == 3) present.Clear(); return present.Contains(path); }, _ => ++sleeps) && sleeps == 3,
+            "waits until the write is moved over the save");
+        present.Add("/s/Colony.sav.writing");
+        Check(!PendingSaveWrite.Wait("/s/Colony.sav", out _, 0, present.Contains, _ => { }), "a write that never finishes refuses after the bound");
+        var unfinished = ModAdmission.UnfinishedSaveRefusal("/s/Colony.sav");
+        Check(unfinished.Contains("still being written (Colony.sav.writing is beside it)") && unfinished.Contains("The save has not been changed.") &&
+            unfinished.Contains("load the colony again"), unfinished);
     }
 
     // A colony saved with other gases and liquids than the game's (ColonyCatalogueDifference,

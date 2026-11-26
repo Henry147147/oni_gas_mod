@@ -289,6 +289,27 @@ namespace MixedAtmospheres.Oni
                     yield return member;
         }
 
+        // The assembly that defines a type (arrays, references and generic
+        // instances by their definition).
+        internal static Assembly Home(Type type)
+        {
+            while (type.IsArray || type.IsByRef || type.IsPointer) type = type.GetElementType()!;
+            return (type.IsGenericType && !type.IsGenericTypeDefinition ? type.GetGenericTypeDefinition() : type).Assembly;
+        }
+
+        // A named entry's form without what Moono changes at load
+        // (docs/game-update-resilience.md#moono): only members that the pinned
+        // game assemblies declare, every method body as "body". Null when the
+        // entry names a type alone or its owner is not a pinned game type.
+        internal static string? NamedShape(Type type, string name, Func<Assembly, bool> pinned)
+        {
+            if (name.Length == 0 || !pinned(Home(type))) return null;
+            var members = (name == "*" ? GameMembers(type) : GameMembers(type, name)).Where(m => m.DeclaringType != null && pinned(Home(m.DeclaringType))).ToArray();
+            if (name == "*") return GameContractCanon.Hash(string.Join("\n", members.Select(GameContractCanon.Member).OrderBy(m => m, StringComparer.Ordinal)));
+            if (members.Length == 0) return "absent";
+            return string.Join("\n", members.Select(m => GameContractCanon.Member(m) + " " + (m is MethodBase ? "body" : MemberValue(m))).OrderBy(t => t, StringComparer.Ordinal));
+        }
+
         internal static string NamedValue(Type type, string name, bool withoutPatchMark = false)
         {
             var members = GameMembers(type, name).ToArray();
@@ -411,6 +432,9 @@ namespace MixedAtmospheres.Oni
         [JsonProperty] public string Name = "";
         [JsonProperty] public string Key = "";
         [JsonProperty] public string Value = "";
+        // Named entries on game types: the value as Moono may leave it
+        // (GameContractScope.NamedShape); empty in older contracts.
+        [JsonProperty] public string Shape = "";
     }
 
     [JsonObject(MemberSerialization.OptIn)]
@@ -418,6 +442,8 @@ namespace MixedAtmospheres.Oni
     {
         [JsonProperty] public int GameBuild;
         [JsonProperty] public string AssemblyCSharpSha256 = "";
+        // Assembly-CSharp-firstpass.dll's file; empty in older contracts.
+        [JsonProperty] public string FirstpassSha256 = "";
         [JsonProperty] public List<GameContractEntry> Entries = new List<GameContractEntry>();
         [JsonProperty] public List<string> Unverified = new List<string>();
 
@@ -426,13 +452,15 @@ namespace MixedAtmospheres.Oni
         internal string ToJson()
         {
             var text = new System.Text.StringBuilder("{\n  \"GameBuild\": ").Append(GameBuild).Append(",\n  \"AssemblyCSharpSha256\": ")
-                .Append(Quote(AssemblyCSharpSha256)).Append(",\n  \"Entries\": [");
+                .Append(Quote(AssemblyCSharpSha256)).Append(",\n  \"FirstpassSha256\": ").Append(Quote(FirstpassSha256)).Append(",\n  \"Entries\": [");
             for (var i = 0; i < Entries.Count; ++i)
             {
                 var e = Entries[i];
                 text.Append(i == 0 ? "\n" : ",\n").Append("    { \"Kind\": ").Append(Quote(e.Kind)).Append(", \"Token\": ").Append(e.Token).Append(", \"Context\": ").Append(e.Context)
                     .Append(", \"TypeName\": ").Append(Quote(e.TypeName)).Append(", \"Name\": ").Append(Quote(e.Name))
-                    .Append(", \"Key\": ").Append(Quote(e.Key)).Append(", \"Value\": ").Append(Quote(e.Value)).Append(" }");
+                    .Append(", \"Key\": ").Append(Quote(e.Key)).Append(", \"Value\": ").Append(Quote(e.Value));
+                if (e.Shape.Length != 0) text.Append(", \"Shape\": ").Append(Quote(e.Shape));
+                text.Append(" }");
             }
             text.Append("\n  ],\n  \"Unverified\": [").Append(string.Join(", ", Unverified.Select(Quote))).Append("]\n}");
             return text.ToString();

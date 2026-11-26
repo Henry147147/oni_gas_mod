@@ -15,6 +15,11 @@ namespace MixedAtmospheres.Oni
         internal const string Title = "Mixed Atmospheres";
         internal const string SpacedOutId = "EXPANSION1_ID";
 
+        // " on Moono <release>" while the game runs on Moono (MoonoHost.OnHost,
+        // set by Mod.OnLoad), so that every refusal and the verified line say
+        // so; empty on Unity's player.
+        internal static string Host = "";
+
         // Gameplay packs this release supports: the base game ("") and Spaced
         // Out! (user decision 2026-10-27). Cosmetic-only packs never change
         // gases or liquids, so they are allowed.
@@ -93,6 +98,14 @@ namespace MixedAtmospheres.Oni
                 "Load the colony with the mods it was saved with, or start a new colony with the mods you have now.";
         }
 
+        // A save still being written in the background (Moono's
+        // background-save, PendingSaveWrite) after the wait's bound.
+        internal static string UnfinishedSaveRefusal(string save) =>
+            "This colony save is still being written (" + System.IO.Path.GetFileName(save) + PendingSaveWriteSuffix + " is beside it), so it was not loaded. " +
+            "The save has not been changed.\n\nWait until the game has finished saving, then load the colony again. If the file stays, another program may be " +
+            "holding the save open; close it, or restart the game.";
+        private const string PendingSaveWriteSuffix = ".writing";
+
         // Where a player reports a problem. Named in every notice the player
         // cannot resolve alone.
         internal const string ReportPlaces = "the Mixed Atmospheres page on the Steam Workshop or github.com/Henry147147/oni_gas_mod/issues";
@@ -147,14 +160,14 @@ namespace MixedAtmospheres.Oni
             return new GameRefusal
             {
                 Kind = "unsupported game build",
-                Notice = "Mixed Atmospheres " + version + " does not support this version of Oxygen Not Included (the game is " + game + "; this copy of the mod is for build " + supported + ").\n\n" +
+                Notice = "Mixed Atmospheres " + version + " does not support this version of Oxygen Not Included" + Host + " (the game is " + game + "; this copy of the mod is for build " + supported + ").\n\n" +
                     (older ? "The game is older than the mod expects. Update Oxygen Not Included, or leave the previous-version branch in its Steam properties."
                         : "The game was probably updated before the mod. Steam installs the next Mixed Atmospheres update by itself; if this notice stays after an update " +
                           "was released, unsubscribe from the mod and subscribe again.") +
                     Untouched("a Mixed Atmospheres version for this game build is installed"),
-                LoadReason = "on this version of Oxygen Not Included (" + game + ")",
+                LoadReason = "on this version of Oxygen Not Included (" + game + ")" + Host,
                 LoadRemedy = older ? "Update Oxygen Not Included" : "Install a Mixed Atmospheres update for this game version",
-                Details = new[] { "the game is " + game + "; this adapter was verified for build " + supported },
+                Details = new[] { "the game is " + game + Host + "; this adapter was verified for build " + supported },
             };
         }
 
@@ -176,14 +189,33 @@ namespace MixedAtmospheres.Oni
             return new GameRefusal
             {
                 Kind = "the game's code differs from the supported build",
-                Notice = "Mixed Atmospheres is not active. Your game reports a version the mod supports (build " + build + "), but " + Parts(differences.Count) +
+                Notice = "Mixed Atmospheres is not active" + Host + ". Your game reports a version the mod supports (build " + build + "), but " + Parts(differences.Count) +
                     " of its code " + (differences.Count == 1 ? "differs" : "differ") + " from that version:\n" + Shown(parts, 3, "") + "\n\n" +
                     "The game is not out of date. Usually another mod or tool has modified the game's files, or files are damaged. Try disabling other mods, and " +
                     "\"Verify integrity of game files\" in the game's Steam properties. If this notice stays, " + Report() +
                     Untouched("the game's code is that of build " + build + " again"),
-                LoadReason = "because the game's code differs from the supported build " + build,
+                LoadReason = "because the game's code differs from the supported build " + build + Host,
                 LoadRemedy = "Disable other mods or verify the game's files in Steam",
-                Details = differences.ToArray(),
+                Details = Host.Length == 0 ? differences.ToArray() : new[] { "running" + Host }.Concat(differences).ToArray(),
+            };
+        }
+
+        // Moono (docs/game-update-resilience.md#moono): the game's files are
+        // the supported build's, but parts the mod uses differ under Moono's
+        // engine or loader. Not the player's files: Moono changes often.
+        internal static GameRefusal MoonoDiffers(int build, IReadOnlyList<string> differences)
+        {
+            var parts = differences.Select(ShortPart).Distinct(StringComparer.Ordinal).ToArray();
+            return new GameRefusal
+            {
+                Kind = "parts the mod uses differ under this Moono release",
+                Notice = "Mixed Atmospheres is not active" + Host + ". The game's files are those of build " + build + ", which the mod supports, but " + Parts(differences.Count) +
+                    " the mod uses " + (differences.Count == 1 ? "differs" : "differ") + " under this Moono release:\n" + Shown(parts, 3, "") + "\n\n" +
+                    "Moono releases change often, and this one is not yet supported. Try the Moono release before it, or start the game without Moono. If this notice stays, " + Report() +
+                    Untouched("the mod supports this Moono release, or the game runs without Moono"),
+                LoadReason = Host.TrimStart() + " (this Moono release differs from what the mod supports)",
+                LoadRemedy = "Start the game without Moono, or with a Moono release the mod supports",
+                Details = new[] { "running" + Host + "; the game's files match build " + build }.Concat(differences).ToArray(),
             };
         }
 
@@ -191,29 +223,29 @@ namespace MixedAtmospheres.Oni
         internal static GameRefusal Installation(string reason) => new GameRefusal
         {
             Kind = "the mod's installation is incomplete",
-            Notice = "Mixed Atmospheres is not active because its own files are incomplete or come from two versions (" + reason + "). The game is not out of date.\n\n" +
+            Notice = "Mixed Atmospheres is not active" + Host + " because its own files are incomplete or come from two versions (" + reason + "). The game is not out of date.\n\n" +
                 "Unsubscribe from the mod and subscribe again, or replace a copy you installed by hand, then restart the game. If this notice stays, " + Report() +
                 Untouched("the mod is installed completely"),
-            LoadReason = "because its installation is incomplete",
+            LoadReason = "because its installation is incomplete" + Host,
             LoadRemedy = "Reinstall Mixed Atmospheres",
-            Details = new[] { reason },
+            Details = new[] { reason + Host },
         };
 
         // The check itself failed.
         internal static GameRefusal CheckFailed(string reason) => new GameRefusal
         {
             Kind = "the check of the game failed",
-            Notice = "Mixed Atmospheres is not active because its check of the game failed: " + reason + "\n\n" +
+            Notice = "Mixed Atmospheres is not active" + Host + " because its check of the game failed: " + reason + "\n\n" +
                 "Another mod may be the cause: try disabling other mods and restart the game. If this notice stays, " + Report() +
                 Untouched("the check passes"),
-            LoadReason = "because its check of the game failed (see the notice at the main menu)",
+            LoadReason = "because its check of the game failed" + Host + " (see the notice at the main menu)",
             LoadRemedy = "Disable other mods and restart the game",
-            Details = new[] { reason },
+            Details = new[] { reason + Host },
         };
 
         // Any other failure while starting: the mod removed its changes.
         internal static string StartFailure(string reason) =>
-            "Mixed Atmospheres could not start and has removed all of its changes, so the game runs as normal: " + reason +
+            "Mixed Atmospheres could not start" + Host + " and has removed all of its changes, so the game runs as normal: " + reason +
             "\n\nAnother mod may be the cause: try disabling other mods. If this notice stays, " + Report();
 
         // A second copy in the same process. Keep the Steam Workshop copy when

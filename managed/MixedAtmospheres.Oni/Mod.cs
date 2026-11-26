@@ -46,6 +46,7 @@ namespace MixedAtmospheres.Oni
             }
             DirectoryPath = path; StaticId = mod?.staticID ?? "";
             ColonyFrameLog.Install();
+            if (MoonoHost.IsMoono) { ModAdmission.Host = MoonoHost.OnHost; UnityEngine.Debug.Log(MoonoHost.LoadLine()); }
             // The game build: every managed dependency, then the native
             // SimDLL. A refused build patches nothing except, when its own
             // targets verify, a guard that explains why mixture saves wait.
@@ -55,7 +56,7 @@ namespace MixedAtmospheres.Oni
             catch (Exception error) { refusal = ModAdmission.CheckFailed(error.Message); }
             if (refusal != null)
             {
-                UnityEngine.Debug.LogWarning("[Mixed Atmospheres] Not active on game build " + build + " (" + refusal.Kind + "); nothing is patched. Details:\n  " + string.Join("\n  ", refusal.Details));
+                UnityEngine.Debug.LogWarning("[Mixed Atmospheres] Not active on game build " + build + ModAdmission.Host + " (" + refusal.Kind + "); nothing is patched. Details:\n  " + string.Join("\n  ", refusal.Details));
                 MenuNotices.Post("Mixed Atmospheres is not active", refusal.Notice);
                 var contract = GameBuildCheck.Contract;
                 if (contract == null && File.Exists(Path.Combine(path, GameContractFile.FileName)))
@@ -103,7 +104,8 @@ namespace MixedAtmospheres.Oni
             catch (Exception error)
             {
                 var teardown = TearDownFailedLoad(harmony, error);
-                UnityEngine.Debug.LogError("[Mixed Atmospheres] Integration probe failed: " + error + "\n" + teardown);
+                UnityEngine.Debug.LogError("[Mixed Atmospheres] Integration probe failed" + ModAdmission.Host + ": " + error + "\n" + teardown +
+                    (MoonoHost.IsMoono ? "\nMoono tweaks with patches so far: " + string.Join(", ", MoonoHost.ActiveTweaks()) : ""));
                 MenuNotices.Post("Mixed Atmospheres is not active", ModAdmission.StartFailure(error.Message));
                 throw;
             }

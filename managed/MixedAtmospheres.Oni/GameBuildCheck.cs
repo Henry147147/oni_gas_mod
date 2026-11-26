@@ -19,6 +19,9 @@ namespace MixedAtmospheres.Oni
         internal const int CompiledBuild = (int)KleiVersion.ChangeList;
         internal static string Platform => RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows-x64" : "linux-x64";
         internal static GameContractPlatform? Contract { get; private set; }
+        // Moono: the game's files matched the contract's hashes, so code that
+        // differs from the contract's form is Moono's rewrite at load.
+        internal static bool GameFilesVerified { get; private set; }
         internal static int CheckedEntries { get; private set; }
         internal static double Milliseconds { get; private set; }
 
@@ -49,7 +52,7 @@ namespace MixedAtmospheres.Oni
         // otherwise why the mod stays off, by cause (ModAdmission.GameRefusal).
         internal static ModAdmission.GameRefusal? VerifyManaged(string modDirectory)
         {
-            Contract = null; OtherModPatches = Array.Empty<string>();
+            Contract = null; OtherModPatches = Array.Empty<string>(); GameFilesVerified = false;
             var file = Path.Combine(modDirectory, GameContractFile.FileName);
             if (!File.Exists(file))
             {
@@ -71,14 +74,65 @@ namespace MixedAtmospheres.Oni
             if (platform.GameBuild != RunningBuild)
                 return ModAdmission.UnsupportedBuild(ModVersion, RunningBuild, platform.GameBuild);
             var modPatched = new List<GameContractCheck.ModPatched>();
-            var differences = GameContractCheck.Verify(platform, typeof(GameBuildCheck).Assembly, out var checkedEntries, modPatched);
+            GameContractCheck.VerifyMode? mode = null;
+            if (MoonoHost.IsMoono)
+            {
+                // Moono re-emits the game's and the mod's assemblies at load
+                // (docs/game-update-resilience.md#moono): the game's identity is
+                // its files, and the contract is read by member keys.
+                var files = GameFileDifferences(platform, out var pinned);
+                if (files.Count != 0) return ModAdmission.GameFiles(RunningBuild, files);
+                GameFilesVerified = true;
+                mode = new GameContractCheck.VerifyMode { ByKey = true, Pinned = pinned.Contains };
+            }
+            var differences = GameContractCheck.Verify(platform, typeof(GameBuildCheck).Assembly, out var checkedEntries, modPatched, mode);
             CheckedEntries = checkedEntries; Milliseconds = started.Elapsed.TotalMilliseconds;
             var refusal = Admit(RunningBuild, differences, modPatched, out var otherModPatches);
-            if (refusal != null) return refusal;
+            if (refusal != null) return mode != null ? ModAdmission.MoonoDiffers(RunningBuild, differences) : refusal;
             Contract = platform; OtherModPatches = otherModPatches;
-            UnityEngine.Debug.Log($"[Mixed Atmospheres] Game build {RunningBuild} verified: {checkedEntries} managed dependencies match the game contract " +
-                $"(written against build {platform.GameBuild}) in {Milliseconds:F0} ms." + ModAdmission.OtherModPatchesLog(otherModPatches));
+            UnityEngine.Debug.Log($"[Mixed Atmospheres] Game build {RunningBuild} verified{ModAdmission.Host}: {checkedEntries} managed dependencies match the game contract " +
+                $"(written against build {platform.GameBuild}) in {Milliseconds:F0} ms." + (mode != null ? MoonoLog(mode, File.Exists(Path.Combine(modDirectory, "development.json")) ||
+                File.Exists(Path.Combine(modDirectory, "colony-validation.json"))) : "") + ModAdmission.OtherModPatchesLog(otherModPatches));
             return null;
+        }
+
+        // Moono: the game files the contract pins, by SHA-256 of the file
+        // each loaded assembly reports as its own. Differences in plain
+        // words; `pinned`, the assemblies whose files match.
+        internal static List<string> GameFileDifferences(GameContractPlatform platform, out HashSet<System.Reflection.Assembly> pinned)
+        {
+            pinned = new HashSet<Assembly>();
+            var differences = new List<string>();
+            var expected = new[] { ("Assembly-CSharp", platform.AssemblyCSharpSha256), ("Assembly-CSharp-firstpass", platform.FirstpassSha256) };
+            foreach (var (name, hash) in expected)
+            {
+                var assembly = AppDomain.CurrentDomain.GetAssemblies().FirstOrDefault(a => a.GetName().Name == name);
+                if (hash.Length == 0) { differences.Add("the game contract has no hash for " + name + ".dll"); continue; }
+                if (assembly == null) { differences.Add("missing game assembly " + name); continue; }
+                string actual;
+                try
+                {
+                    using var stream = File.OpenRead(assembly.Location);
+                    using var sha = System.Security.Cryptography.SHA256.Create();
+                    actual = GameContractCanon.Hex(sha.ComputeHash(stream));
+                }
+                catch (Exception error) { differences.Add("unreadable game file " + name + ".dll (" + error.Message + ")"); continue; }
+                if (actual != hash) differences.Add("changed game file " + name + ".dll (SHA-256 " + actual + ", build " + platform.GameBuild + " has " + hash + ")");
+                else pinned.Add(assembly);
+            }
+            return differences;
+        }
+
+        // Player.log, after the verified line on Moono: what Moono changed that
+        // the contract tolerates there. Development packages list every entry.
+        internal static string MoonoLog(GameContractCheck.VerifyMode mode, bool everything)
+        {
+            string List(List<string> keys) => string.Concat(keys.Take(everything ? keys.Count : 20).Select(k => "\n  " + k)) +
+                (!everything && keys.Count > 20 ? "\n  and " + (keys.Count - 20) + " more" : "");
+            return " The game's files match the contract. " + mode.Rewritten.Count + " game " + (mode.Rewritten.Count == 1 ? "entry's" : "entries'") +
+                " code Moono rewrote at load (accepted: the files are the build's)" + (mode.Rewritten.Count != 0 ? ":" + List(mode.Rewritten) : ".") +
+                "\n" + mode.Engine.Count + " engine " + (mode.Engine.Count == 1 ? "entry" : "entries") + " checked for presence and signature only (Moono's own Unity)" +
+                (mode.Engine.Count != 0 ? ":" + List(mode.Engine) : ".");
         }
 
         // Game methods the mod uses that carry other mods' Harmony patches on
@@ -95,7 +149,8 @@ namespace MixedAtmospheres.Oni
         internal static ModAdmission.GameRefusal? Admit(int build, List<string> differences, List<GameContractCheck.ModPatched> modPatched, out string[] otherModPatches)
         {
             otherModPatches = Array.Empty<string>();
-            if (modPatched.Count != differences.Count) return ModAdmission.GameFiles(build, differences);
+            // Records without a difference: patches seen on Moono where they left none.
+            if (modPatched.Count(part => part.Difference.Length != 0) != differences.Count) return ModAdmission.GameFiles(build, differences);
             // One line per patched method: the contract can hold a method as
             // a call, as a name looked up and as a patch target at once.
             var methods = new SortedDictionary<string, MethodBase>(StringComparer.Ordinal);
@@ -126,6 +181,7 @@ namespace MixedAtmospheres.Oni
         // one, the assembly's name or the Harmony ID.
         private static string ModName(Assembly? assembly, string owner)
         {
+            if (MoonoHost.IsHostOwner(owner)) return "Moono";
             var fallback = assembly?.GetName().Name ?? owner;
             try { return InstalledModTitle(assembly, owner) ?? fallback; }
             catch (Exception) { return fallback; }
@@ -181,8 +237,10 @@ namespace MixedAtmospheres.Oni
             var verified = contract.Entries.Where(e => e.Kind == GameContractScope.Kind_Patched).ToDictionary(e => e.Key, e => e.Value, StringComparer.Ordinal);
             try
             {
+                // On Moono with the build's files, a body Moono rewrote at load is
+                // still the build's code (docs/game-update-resilience.md#moono).
                 if (targets.Any(t => t == null || !verified.TryGetValue(GameContractCanon.Method(t), out var body) ||
-                    body != GameContractCanon.Compact(GameContractCanon.Body(t)) && body != GameContractCanon.Body(t))) return;
+                    !GameBuildCheck.GameFilesVerified && body != GameContractCanon.Compact(GameContractCanon.Body(t)) && body != GameContractCanon.Body(t))) return;
                 harmony.Patch(targets[0], prefix: new HarmonyMethod(typeof(RefusedBuildLoadGuard), nameof(LoadPrefix)));
                 harmony.Patch(targets[1], prefix: new HarmonyMethod(typeof(RefusedBuildLoadGuard), nameof(ResumePrefix)));
                 UnityEngine.Debug.Log("[Mixed Atmospheres] Only the verified save-load guard is installed.");
@@ -208,6 +266,8 @@ namespace MixedAtmospheres.Oni
 
         private static bool Refuse(string path)
         {
+            var unfinished = ColonyOwnerPersistence.UnfinishedSave(path);
+            if (unfinished != null) { ColonyLoadPrecheckPatch.Refuse(unfinished); return true; }
             if (!ColonyOwnerPersistence.IsMixtureSave(path)) return false;
             ColonyLoadPrecheckPatch.Refuse(refusal);
             return true;

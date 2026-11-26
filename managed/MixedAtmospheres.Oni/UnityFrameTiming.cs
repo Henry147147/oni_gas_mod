@@ -27,9 +27,14 @@ namespace MixedAtmospheres.Oni
     // frame rate at the display's refresh rate. ONI's graphics options can
     // reset the quality level, so a correction is reapplied while it stands.
     // Turning the setting off restores the previous V-Sync and frame cap.
+    //
+    // On Moono (docs/game-update-resilience.md#moono) the engine's delta time
+    // is the real time between frames (whole refreshes with V-Sync, which
+    // still sum to the wall clock), so the repair stays off there; the
+    // performance log keeps its timing columns.
     internal static class UnityFrameTiming
     {
-        private static bool enabled = true, corrected, stillMismatched;
+        private static bool enabled = true, corrected, stillMismatched, moonoSaid;
         private static int savedVSync = -1, savedTarget = -1, mismatchedWindows;
         private static long lastTimestamp;
         private static readonly FrameClockWindow window = new FrameClockWindow();
@@ -46,6 +51,7 @@ namespace MixedAtmospheres.Oni
 
         internal static void Frame()
         {
+            if (!moonoSaid && MoonoHost.IsMoono) { moonoSaid = true; Log("on Moono the engine times frames from the real clock; the V-Sync clock repair (performance.frameTimingFix) stays off."); }
             try { Observe(Stopwatch.GetTimestamp(), Time.unscaledDeltaTime); }
             catch (Exception error) { UnityEngine.Debug.LogWarning("[Mixed Atmospheres] Frame timing check failed: " + error.Message); }
         }
@@ -74,6 +80,7 @@ namespace MixedAtmospheres.Oni
                 return;
             }
             if (!enabled || mismatchedWindows < 2) return;
+            if (MoonoHost.IsMoono) return; // said once in Frame
             if (QualitySettings.vSyncCount == 0)
             {
                 if (!stillMismatched) { stillMismatched = true; Log("frame timing disagrees with real time with V-Sync already off: " + detail); }

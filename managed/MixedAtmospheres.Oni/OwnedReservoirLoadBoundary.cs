@@ -135,6 +135,12 @@ namespace MixedAtmospheres.Oni
         private static readonly FieldInfo UpdaterInstanceField = AccessTools.DeclaredField(typeof(Singleton<KBatchedAnimUpdater>), "_instance")
             ?? throw new NotSupportedException("Pinned existing animation updater field is absent.");
         private const string UnityCoreModuleSha256 = "a9613c2b0f1258ac7f7d9323181f816f5849beb24114e4a7665037fd11ddd488";
+        // Unity's scene-unload callback, by a name built at run time: Moono's
+        // engine (MoonoHost) has no such method, and a constant name would put
+        // a key Moono lacks into the shipped game contract. The contract pins
+        // SceneManager's whole member list instead. Load-rejection validation
+        // (the only user) needs Unity's own engine and cannot run on Moono.
+        internal static readonly string SceneUnloadedName = string.Concat("Internal_", "SceneUnloaded");
         private const string HarmonySha256 = "aec7446028fe31d00dfecc684e40011c4208bb036e82617b8de32002a8e55b53";
         private static readonly FieldInfo RestartField = RequireField("mustRestartOnFail");
         private static readonly FieldInfo CorruptField = RequireField("saveFileCorrupt");
@@ -160,6 +166,7 @@ namespace MixedAtmospheres.Oni
                     throw new InvalidOperationException("Load boundary already belongs to another installation/thread.");
                 return;
             }
+            if (MoonoHost.IsMoono) throw new NotSupportedException("The owned-load boundary needs Unity's own engine; it is not available on Moono " + MoonoHost.Release + ".");
             RequireHash(typeof(SaveLoader).Assembly, OwnedReservoirLoadHeaderV1.AssemblyCSharpSha256);
             RequireHash(typeof(IReader).Assembly, OwnedReservoirLoadHeaderV1.FirstpassSha256);
             RequireHash(typeof(SceneManager).Assembly, UnityCoreModuleSha256);
@@ -248,7 +255,7 @@ namespace MixedAtmospheres.Oni
             Add(typeof(Game), "Load", typeof(void), false, nameof(RejectLoadContinuation), new[] { typeof(KSerialization.Deserializer) }, nameof(RejectLoadContinuation));
             Add(typeof(Game), "DestroyInstances", typeof(void), false, nameof(TeardownPrefix), Type.EmptyTypes, nameof(BodyPostfix), nameof(BodyFinalizer), nameof(BodyWitnessTranspiler));
             Add(typeof(KMonoBehaviour), "OnDestroy", typeof(void), false, nameof(LoaderDestroyPrefix), Type.EmptyTypes, nameof(BodyPostfix), nameof(BodyFinalizer), nameof(BodyWitnessTranspiler));
-            Add(typeof(SceneManager), "Internal_SceneUnloaded", typeof(void), true, nameof(SceneUnloadPrefix), new[] { typeof(Scene) }, nameof(BodyPostfix), nameof(BodyFinalizer), nameof(BodyWitnessTranspiler));
+            Add(typeof(SceneManager), SceneUnloadedName, typeof(void), true, nameof(SceneUnloadPrefix), new[] { typeof(Scene) }, nameof(BodyPostfix), nameof(BodyFinalizer), nameof(BodyWitnessTranspiler));
             Add(typeof(KBatchedAnimUpdater), "DoGridProcessing", typeof(bool), false, nameof(EmptyAnimationGridPrefix), Type.EmptyTypes);
             Add(typeof(Game), "OnPrefabInit", typeof(void), false, nameof(LateGamePrefabPrefix), Type.EmptyTypes);
             hooks.Add(new OwnedReservoirLoadHook(Method(typeof(Sim), "Shutdown", typeof(void), true), null, Patch(nameof(ShutdownPostfix))));
@@ -285,7 +292,7 @@ namespace MixedAtmospheres.Oni
                 d.Length != 7 || d[0] != 0x14 || d[1] != 0x28 || BitConverter.ToInt32(d, 2) != setter.MetadataToken || d[6] != 0x2a)
                 throw new NotSupportedException("Pinned SaveLoader singleton access/reset must only read or assign its exact managed field.");
             foreach (var method in new[] { getter, setter, destroy, Method(typeof(Game), "DestroyInstances", typeof(void), false),
-                Method(typeof(KMonoBehaviour), "OnDestroy", typeof(void), false), Method(typeof(SceneManager), "Internal_SceneUnloaded", typeof(void), true, typeof(Scene)) })
+                Method(typeof(KMonoBehaviour), "OnDestroy", typeof(void), false), Method(typeof(SceneManager), SceneUnloadedName, typeof(void), true, typeof(Scene)) })
                 if (method.GetMethodBody()!.ExceptionHandlingClauses.Count != 0)
                     throw new NotSupportedException("Body witness does not support exception regions: " + method.Name);
             var handle = AccessTools.PropertyGetter(typeof(Scene), "handle") ?? throw new NotSupportedException("Scene.handle is absent.");
@@ -320,7 +327,7 @@ namespace MixedAtmospheres.Oni
                     var scene = loader.gameObject.scene;
                     if (!scene.IsValid() || !scene.isLoaded || scene.name != "backend")
                         throw new InvalidOperationException("No-Game cancellation requires the loader's exact live backend scene.");
-                    Handle = scene.handle; Name = scene.name; Path = scene.path; BuildIndex = scene.buildIndex;
+                    Handle = SceneHandleOf(scene); Name = scene.name; Path = scene.path; BuildIndex = scene.buildIndex;
                     Updater = Singleton<KBatchedAnimUpdater>.Instance ?? throw new InvalidOperationException("No existing animation updater.");
                     Grid = (Array?)ControllerGridField.GetValue(Updater);
                     Kind = OwnedReservoirLoadCompletionKind.PreGameLoaderScene;
@@ -789,10 +796,24 @@ namespace MixedAtmospheres.Oni
                 !ReferenceEquals(attempt.Identity, capture.AttemptIdentity) || !ReferenceEquals(__instance, capture.OwnerLoader)) return;
             __state = BeginBodyWitness(attempt, OwnedReservoirLoadBodyKind.LoaderOnDestroy, capture.OwnerLoader);
         }
+        // Scene.handle by reflection: Unity's returns a SceneHandle that
+        // converts to int, Moono's an int. A compiled call would name the
+        // SceneHandle form, which Moono replaces by a throw.
+        private static MethodInfo? sceneHandleGetter;
+        private static MethodInfo? sceneHandleToInt;
+        internal static int SceneHandleOf(Scene scene)
+        {
+            var getter = sceneHandleGetter ??= AccessTools.PropertyGetter(typeof(Scene), "handle") ?? throw new NotSupportedException("Scene.handle is absent.");
+            var value = getter.Invoke(scene, null);
+            if (value is int plain) return plain;
+            var convert = sceneHandleToInt ??= AccessTools.FirstMethod(value!.GetType(), m => m.IsStatic && m.Name == "op_Implicit" && m.ReturnType == typeof(int))
+                ?? throw new NotSupportedException("Scene.handle does not convert to an integer.");
+            return (int)convert.Invoke(null, new[] { value })!;
+        }
         private static void SceneUnloadPrefix(Scene scene, out OwnedReservoirLoadBodyInvocation? __state)
         {
             __state = null;
-            var handle = scene.handle;
+            var handle = SceneHandleOf(scene);
             var capture = LastPreGameSceneCapture;
             var attempt = Installed ? attempts.Current : null;
             if (attempt == null || capture == null || attempt.CompletionKind != OwnedReservoirLoadCompletionKind.PreGameLoaderScene ||
@@ -827,15 +848,15 @@ namespace MixedAtmospheres.Oni
         private static void LoaderBodyEntry(KMonoBehaviour owner) => ObserveBody(OwnedReservoirLoadBodyKind.LoaderOnDestroy, owner, false);
         private static void LoaderBodyReturn(KMonoBehaviour owner) => ObserveBody(OwnedReservoirLoadBodyKind.LoaderOnDestroy, owner, true);
         private static void SceneBodyEntry(Scene scene)
-        { var capture = LastPreGameSceneCapture; if (capture != null && capture.SceneHandle == scene.handle) ObserveBody(OwnedReservoirLoadBodyKind.SceneUnloaded, capture, false); }
+        { var capture = LastPreGameSceneCapture; if (capture != null && capture.SceneHandle == SceneHandleOf(scene)) ObserveBody(OwnedReservoirLoadBodyKind.SceneUnloaded, capture, false); }
         private static void SceneBodyReturn(Scene scene)
-        { var capture = LastPreGameSceneCapture; if (capture != null && capture.SceneHandle == scene.handle) ObserveBody(OwnedReservoirLoadBodyKind.SceneUnloaded, capture, true); }
+        { var capture = LastPreGameSceneCapture; if (capture != null && capture.SceneHandle == SceneHandleOf(scene)) ObserveBody(OwnedReservoirLoadBodyKind.SceneUnloaded, capture, true); }
         private static IEnumerable<CodeInstruction> BodyWitnessTranspiler(IEnumerable<CodeInstruction> instructions, MethodBase original)
         {
             string entry, returned;
             if (original == Method(typeof(Game), "DestroyInstances", typeof(void), false)) { entry = nameof(GameBodyEntry); returned = nameof(GameBodyReturn); }
             else if (original == Method(typeof(KMonoBehaviour), "OnDestroy", typeof(void), false)) { entry = nameof(LoaderBodyEntry); returned = nameof(LoaderBodyReturn); }
-            else if (original == Method(typeof(SceneManager), "Internal_SceneUnloaded", typeof(void), true, typeof(Scene))) { entry = nameof(SceneBodyEntry); returned = nameof(SceneBodyReturn); }
+            else if (original == Method(typeof(SceneManager), SceneUnloadedName, typeof(void), true, typeof(Scene))) { entry = nameof(SceneBodyEntry); returned = nameof(SceneBodyReturn); }
             else throw new NotSupportedException("Unsupported original-body witness target.");
             if (original.GetMethodBody()!.ExceptionHandlingClauses.Count != 0) throw new NotSupportedException("Body witness does not accept exception regions.");
             var source = new List<CodeInstruction>(instructions);

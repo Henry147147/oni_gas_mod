@@ -719,7 +719,7 @@ namespace MixedAtmospheres.Oni
                     "A pre-Game rejection unexpectedly used Game teardown.");
                 foreach (var body in new[] {
                     OwnedReservoirLoadValidationCounters.Key(typeof(KMonoBehaviour), "OnDestroy"),
-                    OwnedReservoirLoadValidationCounters.Key(typeof(UnityEngine.SceneManagement.SceneManager), "Internal_SceneUnloaded", typeof(UnityEngine.SceneManagement.Scene)) })
+                    OwnedReservoirLoadValidationCounters.Key(typeof(UnityEngine.SceneManagement.SceneManager), OwnedReservoirLoadBoundary.SceneUnloadedName, typeof(UnityEngine.SceneManagement.Scene)) })
                     Require(delta.Counts.TryGetValue(body, out var completed) && completed.OriginalBodyEntries > 0 &&
                         completed.OriginalBodyReturns > 0 && completed.FinalizerExceptions == 0,
                         "Native loader/scene lifetime body did not return cleanly: " + body);

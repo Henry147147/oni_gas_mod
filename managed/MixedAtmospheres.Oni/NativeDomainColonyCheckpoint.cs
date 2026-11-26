@@ -135,6 +135,7 @@ namespace MixedAtmospheres.Oni
                     throw new IOException("Normal colony save did not finish its requested file.");
                 Require(serializedBodyCaptures==1 && stagedColonySave!=null,"Normal colony save has no complete serialized body.");
                 if(serializedHeaderCaptures!=1) throw new IOException("Normal colony save did not finish writing its current header.");
+                if(!PendingSaveWrite.Wait(actual,out _)) throw new IOException("The colony save's background write did not finish: "+actual+PendingSaveWrite.Suffix);
                 using var file=new FileStream(actual,FileMode.Open,FileAccess.Read,FileShare.Read);
                 if(file.Length>1<<30) throw new IOException("Saved colony exceeds the supported readback limit.");
                 var bytes=new byte[checked((int)file.Length)];var count=0;
@@ -579,7 +580,7 @@ namespace MixedAtmospheres.Oni
             object? Field(string name)=>animation==null ? null : AccessTools.Field(typeof(KAnimControllerBase),name)?.GetValue(animation);
             return new {Frame=Time.frameCount,ScaledDelta=Time.deltaTime,UnscaledDelta=Time.unscaledDeltaTime,TimeScale=Time.timeScale,
                 UnscaledTime=Time.unscaledTimeAsDouble,Realtime=Time.realtimeSinceStartupAsDouble,
-                CaptureDelta=Time.captureDeltaTime,MaximumDelta=Time.maximumDeltaTime,
+                MaximumDelta=Time.maximumDeltaTime,
                 MonotonicTicks=Stopwatch.GetTimestamp(),MonotonicFrequency=Stopwatch.Frequency,
                 UtcTicks=System.DateTime.UtcNow.Ticks,
                 GameActive=game!=null && game.gameObject.activeInHierarchy,GamePaused=game==null ? null : AccessTools.Field(typeof(Game),"IsPaused").GetValue(game),
