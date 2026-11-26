@@ -202,34 +202,93 @@ How Moono is detected, checked and tolerated is documented in
 
 ## Checks
 
-Development packages of the 1.15.0 work (pkg-1150b/c), Moono 2026.11.26.02
-on the Xvfb desktop with Vulkan on the GPU:
+Development packages of the 1.15.0 work, Moono 2026.11.26.02 on the Xvfb
+desktop with Vulkan on the GPU, Linux, game build 764025. pkg-1150b and
+pkg-1150c hold the Moono work alone. pkg-1150d is the tree rebased on
+1.14.0 with the 1.13.10 pipe-save fix and the pipe-component fix, so both
+supports together. pkg-1150e is version 1.15.0.
 
-| Run | Result |
-| --- | --- |
-| Main menu through Moono, tweaks none (`moono-menu-b`) | passed-scoped-main-menu; "Game build 764025 verified on Moono v2026.11.26.02", native observer attached |
-| New Spaced Out! colony through Moono, 600 ticks at speed 3, two saves, tweaks none, windowed (`moono-owner-b`) | passed-colony-owner |
-| The same with Moono's `--headless` (`moono-owner-headless-b`) | passed-colony-owner |
-| The same package on Unity's player: main menu and colony (`unity-menu-b`, `unity-owner-b`) | both passed |
-| New Spaced Out! colony with Moono's default tweaks, 600 ticks, saved (`moono-default-owner`) | passed-colony-owner; 47 rewritten entries accepted |
-| That save loaded under Moono with defaults, 300 ticks, saved (`moono-default-reload`) | passed-colony-owner-load |
-| The Moono-made save loaded on Unity's player (`unity-loads-moono-save`) | passed-colony-owner-load |
-| A Unity-made save loaded under Moono (`moono-loads-unity-save`) | PENDING(moono-loads-unity-save) |
-| Scenario `message-edges` under Moono with defaults (`moono-default-edges`) | PENDING(moono-default-edges) |
-| Scenario `mixed-pipes` under Moono with defaults (`moono-default-pipes`) | PENDING(moono-default-pipes) |
-| The user's Cycle 130 save with their seven mods under Moono (`moono-default-c130`) | PENDING(moono-default-c130) |
-| A new colony with all tweaks (`moono-all-owner`) | PENDING(moono-all-owner) |
+| Package | Run | Result |
+| --- | --- | --- |
+| b | Main menu through Moono, tweaks none (`moono-menu-b`) | passed-scoped-main-menu; "Game build 764025 verified on Moono v2026.11.26.02", native observer attached |
+| b | New Spaced Out! colony through Moono, 600 ticks at speed 3, two saves, tweaks none, windowed (`moono-owner-b`) | passed-colony-owner |
+| b | The same with Moono's `--headless` (`moono-owner-headless-b`) | passed-colony-owner |
+| b | The same package on Unity's player, main menu and colony (`unity-menu-b`, `unity-owner-b`) | both passed |
+| c | New Spaced Out! colony with Moono's default tweaks, 600 ticks, saved (`moono-default-owner`) | passed-colony-owner; 47 rewritten entries accepted |
+| c | That save loaded under Moono with defaults, 300 ticks, saved (`moono-default-reload`) | passed-colony-owner-load |
+| c | The Moono-made save loaded on Unity's player (`unity-loads-moono-save`) | passed-colony-owner-load |
+| c | A save of Unity's player loaded under Moono with defaults (`moono-loads-unity-save`) | passed-colony-owner-load |
+| c | Scenario `message-edges` under Moono with defaults (`moono-default-edges`) | passed, 5 checks; ledgers 1.7e-17 mass, 2.6e-17 energy |
+| c | Scenario `mixed-pipes` under Moono with defaults (`moono-default-pipes`) | passed, 8 checks; ledgers 7.0e-18, 2.4e-17 |
+| c | The user's Cycle 130 save with their seven mods under Moono with defaults (`moono-default-c130`) | passed-colony-owner-load at owner frame 387,121; ledgers 2.76e-12 mass (the colony's own figure since Cycle 70), 7.8e-14 energy |
+| c | A new colony with all of Moono's tweaks, 600 ticks (`moono-all-owner`) | passed-colony-owner; ledgers 4.9e-17, 1.2e-16 |
+| d | Main menu, Moono defaults, Rephysicalized first (`moono-rephys-menu`) | passed-scoped-main-menu |
+| d | New colony, Moono defaults, Rephysicalized first, 600 ticks, saved (`moono-rephys-colony`) | passed-colony-owner |
+| d | Scenario `rephysicalized` under Moono, both simulations (`moono-rephys-scenario`, `moono-rephys-scenario-vanilla`) | passed-colony-owner (12 checks; ledgers 1.4e-15, 4.6e-17) and passed-colony-vanilla (7 checks) |
+| d | Scenario `mixed-pipe-disconnected-save` under Moono (`moono-pipe-disconnected`) | passed-colony-owner, 4 checks |
+| d | The same two scenarios on Unity's player (`unity-rephys-scenario-d`, `unity-pipe-disconnected-d`) | both passed-colony-owner |
+| e | The 1.15.0 package on Unity's player, main menu (`unity-menu-e`) | passed-scoped-main-menu |
+| e | `moono-refused-guard` by hand: the run's copy of `Assembly-CSharp-firstpass.dll` with 35 bytes appended, a Mixed Atmospheres save resumed from the menu | passed-resume-refused; Moono starts with the altered file (lines below) |
+| e | `moono-autosave-load` by hand: autosave, two saves back to back, the menu's load check at once | passed-colony-owner; both save controls completed, `PendingAtRead` 1 (below) |
+| e | `moono-tweak-verify` by hand: Moono defaults with `ONI_TWEAK_VERIFY=1`, then Moono's `qa-tools.py verify` of the log | passed-colony-owner; qa-tools exit 0, every check 0 wrong (below) |
+
+The refused guard, from its Player.log:
+
+```
+[Mixed Atmospheres] Not active on game build 764025 on Moono v2026.11.26.02 (the game's code differs from the supported build); nothing is patched. Details:
+  changed game file Assembly-CSharp-firstpass.dll (SHA-256 261d723b5b8632207cf7ed0ffc89ca67062f1062a6fd6eb69edf253ed95dd25c, build 764025 has 33028961e62386c9deb59acd85f334e7d36f38c55f59f5e36df3fd5c8688d7ab)
+[Mixed Atmospheres] Only the verified save-load guard is installed.
+[Mixed Atmospheres] Colony save refused before loading: This colony uses Mixed Atmospheres, which is not active because the game's code differs from the supported build 764025 on Moono v2026.11.26.02, so it was not loaded. The save has not been changed. Disable other mods or verify the game's files in Steam, then load the colony again.
+```
+
+The licensed file kept its hash (`33028961…`); only the run's own copy changed.
+
+The save control reports:
+
+- `autosave: autosave written at owner frame 326`
+- `save-pair-read: two saves at owner frame 328; pair-2.sav still being written at the check, accepted after 213 ms; pair-1.sav complete at the check, accepted after 130 ms; MA-Linux-20261126T214855Z-88adb3 Cycle 1.sav complete at the check, accepted after 158 ms`
+
+Player.log adds "Waited 30 ms for the background write of pair-2.sav to finish before reading it". The second save was still being written when the menu's check read it, which is the window the wait covers. Before the fix that read would have taken it for a non-mixture save.
+
+Moono's own judgement of its verify modes (`qa-tools.py verify`, exit 0), the summary lines:
+
+```
+ok   fast-anim-cleanup: 91 chunks swept, 99909 skipped, 0 wrong skips
+ok   fast-jobs: 40000 runs checked, 0 wrong
+ok   fast-offset-tables: 4000 updates, 0 items recomputed, 0 stale items not marked
+ok   fast-partitioner-events: 151922 walks skipped, 217 freed handles dropped, 0 wrong
+ok   fast-save-type-checks: verify: 1 kept component arrays compared, 0 differ
+ok   fast-serialization: verify: the report history identical (8 bytes against 8; 1 writes, 0 mismatches)
+ok   fast-serialization: verify: today's report identical (1,809 bytes against 1,809; 2 writes, 0 mismatches)
+ok   fast-symbol-overrides: 9287 kept applications checked, 4718120 checks, 0 mismatches
+ok   instant-reachability: ... 114717 checks, 0 mismatches
+ok   nav links verify (after the load): 19 grids, 3,027,238 links, 0 cell(s) differ from the game's arrays; ... 0 differed from the game's array as they ended
+ok   nav links verify (in play): 19 grids, 3,027,297 links, 0 cell(s) differ from the game's arrays; ... 0 differed from the game's array as they ended
+ok   path grids verify: 22 tables, 15,252,617 elements, 0 differ from the flat arrays, 0 only mid-write
+ok   path-probe-repair: 11783 probes: 11711 repaired ..., 11711 repairs verified, 0 otherwise than a flood, ... 72 floods verified, 0 otherwise than the game's, ... 0 changes the feed missed
+ok   trim-anim-lists: 4484 lists trimmed, 72.3 MB freed, 0 differed
+```
+
+`path-probe-repair` reported "0 changes the feed missed" beside the owner. The review's medium-low risk, that its feed misses a submerged change, did not occur in this run. `fast-sublimation` and `fast-conduit-sorts` were installed but wrote no verify summary in this 600-tick colony, so their verify modes are not confirmed here. Player.log lists the latter's patch beside the mod's, as other mods' are: `ConduitFlow.Sim200ms <- Moono (Harmony: OniMoono.Host.GameTweaks.fast-conduit-sorts)`.
 
 ## Staged package
 
-PENDING(release chain)
+PENDING(release chain): `artifacts/v1.15.0/accept-pre.sh` up to staging, then
+`accept-post.sh`, on the cut revision. Nothing is uploaded.
 
 | Step | Result |
 | --- | --- |
-| Release builds (Linux for Ubuntu 22.04, Windows), package for game builds 744825, 763796 and 764025, archive verification | PENDING(release builds) |
-| Release tier on Unity's player and Windows under Proton (`--platform both`), including the Rephysicalized steps (`rephysicalized`, `linux-menu-rephysicalized`) and `mixed-pipe-disconnected-save` | PENDING(release tier both) |
-| Release tier through Moono (`--platform moono`): the twins, including `moono-menu-rephysicalized` and the `rephysicalized` batch twin, and the Moono-only steps | PENDING(release tier moono) |
-| The user's share saves with the seven other mods on the release folder, Unity's player and Moono | PENDING(share saves) |
-| Rephysicalized on the release folder, Unity's player and Moono: main menu with it first; a new colony with it first, saved and reloaded | PENDING(rephysicalized release folder) |
-| The Cycle 130 save with the seven mods, Windows build under Proton | PENDING(windows c130) |
-| Stage, Workshop dry run | PENDING(stage) |
+| Builds: Linux for Ubuntu 22.04, the Windows build, the Linux build | PENDING |
+| Package for game builds 744825, 763796 and 764025 | PENDING |
+| Archive verification | PENDING |
+| Five of the user's share saves (Cycles 130, 128, 70, 44, 33) with their seven other mods, Unity's player, release folder | PENDING |
+| Rephysicalized on the release folder, Unity's player, 6 runs: main menu with it first; new colonies with it first and after it; the two-mod save reloaded; the element notices for the Cycle 130 save with it and for the two-mod save without it | PENDING |
+| Moono with its default tweaks on the release folder, 5 runs: new colony; with Rephysicalized first; a save of Unity's player; the Cycle 130 save with the seven mods; without a window | PENDING |
+| Two controls: the mod-off stand-in (its patches removed) refuses the Cycle 128 save; the stand-in's patches are accepted | PENDING |
+| The Cycle 130 save with the seven mods, Windows build under Proton | PENDING |
+| A new colony with Rephysicalized first, Windows build under Proton | PENDING |
+| Stage, Workshop dry run | PENDING |
+| Load matrix (the three game builds, Linux and Windows under Proton) | PENDING |
+| Patch tier on the three platforms with the batches of `rephysicalized`, `message-edges` and `building-emitter` | PENDING |
+| The other ten share saves (Cycles 129 to 121, 55, 49) with their seven mods, Unity's player, release folder | PENDING |
+| Release tier on the three platforms (`--platform all`, 184 steps): every Linux game step on Unity's player and its Moono twin, the Rephysicalized steps and their twins, the six Moono-only steps, the Windows steps under Proton | PENDING |
