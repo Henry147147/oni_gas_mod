@@ -160,6 +160,28 @@ game code. The native profiles stay committed in `docs/native-hook-profiles.json
   (Klei editing a gas or liquid, or the element order), is refused with a clear
   message before ONI leaves the menu. Remapping saved materials to a changed
   catalogue is a future migration; the retarget report calls it out.
+- **A catalogue change says what changed (1.14.0).** The catalogue hash is
+  taken over the 168-byte material records, and the owner image inside the
+  save holds those same records (checked on every real save the controls
+  read). When the hash differs, `ColonyCatalogueDifference` compares them by
+  element hash with the game's current catalogue: elements only in the game
+  (new), only in the save (missing) and in both with different properties
+  (changed). The player is told up to four names per kind and "and N more",
+  then that usually a mod that adds or changes elements was turned on or off
+  since the colony was saved, and to load the colony with the mods it was
+  saved with or to start a new colony with the current mods; the text does
+  not blame the Mixed Atmospheres build. An element that only moved in the
+  element list is not named; when that is the whole difference, the text says
+  the order of the game's elements changed. Player.log lists every element,
+  with what differs (molar mass, heat capacity, conductivity, density,
+  transition temperatures, transition targets, byproducts, index). If the
+  saved records cannot be read, the text says only what to do. Rephysicalized
+  is such a mod: it adds Molten Silicon and Silicon Gas and edits others, so
+  a colony saved without it is refused while it is on, and the other way
+  round. Both load paths give the same text: the menu check
+  (`LoadScreen.DoLoad`, `MainMenu.ResumeGame`, when the game's elements are
+  loaded there) and the in-game load. The mixed pipes' own catalogue check
+  comes after the owner's and cannot refuse such a colony first.
 - When the mod refuses a build, it installs only a load guard, and only if
   `LoadScreen.DoLoad(string)` itself verifies. A mixture save then shows
   "needs a Mixed Atmospheres version for this game build" instead of reaching
@@ -376,6 +398,7 @@ report it.
 | The mod's own files do not belong together (contract missing or of another build, native library of another build) | The same; notice asks to reinstall the mod |
 | The check itself failed | The same; notice gives the error and where to report it |
 | Second copy of the mod enabled | Second copy patches nothing; notice asks the player to keep one |
+| A colony's gases and liquids differ from the game's (a mod that adds or changes elements turned on or off since the save) | The colony is not loaded and the save is unchanged; the text names the new, missing and changed elements and says to load it with the mods it was saved with or start a new colony ([details](#saves-across-builds)) |
 | Frosty, Bionic, Prehistoric or Aquatic content active | The mod loads, but the colony owner never takes a colony over; notice; the colony keeps ONI's simulation. A mixture save is not loaded while such a pack is active. This is the release behaviour (user decision 2026-10-27: the first release supports the base game and Spaced Out! only). |
 
 ## Commands
@@ -427,6 +450,7 @@ shadow probe's reference if it changes. Keep the older builds as described
 | Normalised identity | `tools/oni_hook_profiles.py`, `native/src/oni_image_identity.hpp` |
 | Profile selection | `native/src/oni_backend.cpp` (`NativeProfile`, `verify_files`) |
 | Saves across builds | `ColonySaveEnvelope.Parse(..., earliest, latest, ...)`, `ColonyOwnerPersistence.cs` |
+| What differs in a colony's gases and liquids | `ColonyCatalogueDifference.cs`, `ModAdmission.CatalogueLoadRefusal`, controls in `tools/DistributionTests` |
 | Retargeting | `tools/retarget_oni.py` |
 
 Reflection by name is covered three ways:

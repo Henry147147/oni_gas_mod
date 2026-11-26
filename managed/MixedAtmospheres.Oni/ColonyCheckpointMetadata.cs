@@ -40,6 +40,16 @@ namespace MixedAtmospheres.Oni
             }
         }
 
+        // The saved 168-byte material records (OniNativeColony.Material), in
+        // the order the owner received them (ColonyCatalogueDifference).
+        internal static ReadOnlySpan<byte> MaterialTable(ReadOnlySpan<byte> image, out int count)
+        {
+            LedgerOffset(image, out _, out var materials, out var table);
+            if (materials > (uint)((image.Length - table) / 168)) throw new InvalidDataException("Truncated colony material table.");
+            count = (int)materials;
+            return image.Slice(table, count * 168);
+        }
+
         internal static void RefuseUnboundedPressure(ReadOnlySpan<byte> image)
         {
             var version=Profile(image).PhysicalVersion;

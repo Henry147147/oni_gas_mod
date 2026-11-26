@@ -5,7 +5,7 @@ using System.Text;
 namespace MixedAtmospheres.Oni
 {
     // Client of the colony owner ABI (native/include/mixed_atmospheres/oni_colony.h).
-    internal static class OniNativeColony
+    internal static partial class OniNativeColony
     {
         private const string Library = "mixed_atmospheres_oni";
         [DllImport(Library,CallingConvention=CallingConvention.Cdecl,EntryPoint="ma_oni_colony_passive_snapshot_version")]
@@ -19,16 +19,7 @@ namespace MixedAtmospheres.Oni
         internal const uint Inject = 1, Extract = 2, ExtractGas = 3, ExtractLiquid = 4, Byproduct = 5, ConsumerFlag = 0x100, CometExhaustFlag = 0x200;
         internal const uint ViewGas = 1, ViewLiquid = 2, ViewOwned = 4;
 
-        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Ansi)]
-        internal struct Material
-        {
-            public uint Size, Version; public int ElementHash; public uint NativeIndex, Phase, Reserved;
-            public double MolarMassKgPerMol, SpecificHeatJPerKgK, ConductivityWPerMK, DensityKgPerM3;
-            public double LowTemperatureK, HighTemperatureK;
-            public int LowTarget, HighTarget, LowByproduct, HighByproduct;
-            public double LowByproductFraction, HighByproductFraction;
-            [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string Id;
-        }
+        // Material: OniNativeColony.Material.cs (engine-free, for the save controls).
         [StructLayout(LayoutKind.Sequential)]
         internal struct Config
         {

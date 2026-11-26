@@ -51,12 +51,11 @@ namespace MixedAtmospheres.Oni
 
         internal static string PackName(string id) => PackNames.TryGetValue(id, out var name) ? name : id;
 
-        internal static string PackList(IReadOnlyList<string> ids)
-        {
-            var names = ids.Select(PackName).ToArray();
-            return names.Length <= 1 ? string.Concat(names) :
-                string.Join(", ", names, 0, names.Length - 1) + " and " + names[names.Length - 1];
-        }
+        internal static string PackList(IReadOnlyList<string> ids) => Joined(ids.Select(PackName).ToArray());
+
+        // "A", "A and B", "A, B and C".
+        private static string Joined(string[] names) => names.Length <= 1 ? string.Concat(names) :
+            string.Join(", ", names, 0, names.Length - 1) + " and " + names[names.Length - 1];
 
         // Shown at the main menu while unsupported packs are active.
         internal static string PacksMenuNotice(IReadOnlyList<string> ids) =>
@@ -74,6 +73,25 @@ namespace MixedAtmospheres.Oni
             "This colony uses Mixed Atmospheres, which supports the base game and Spaced Out! only, but " + PackList(ids) +
             (ids.Count == 1 ? " is" : " are") + " active. Turn " + (ids.Count == 1 ? "that pack" : "those packs") +
             " off in the main menu's content settings, then load the colony again. The save has not been changed.";
+
+        // A colony whose gases and liquids are not this game's: the envelope's
+        // catalogue differs (ColonyCatalogueDifference). The cause is almost
+        // always another mod that adds or changes elements, turned on or off
+        // since the save; the Mixed Atmospheres build is not the problem.
+        // Null lists: the saved elements could not be read.
+        internal static string CatalogueLoadRefusal(IReadOnlyList<string>? added, IReadOnlyList<string>? removed, IReadOnlyList<string>? changed, bool orderOnly)
+        {
+            string Names(IReadOnlyList<string> names) => Joined(names.Count <= 4 ? names.ToArray() : names.Take(3).Concat(new[] { (names.Count - 3) + " more" }).ToArray());
+            var parts = new List<string>();
+            if (added?.Count > 0) parts.Add("New in this game: " + Names(added!) + ".");
+            if (removed?.Count > 0) parts.Add("Missing from this game: " + Names(removed!) + ".");
+            if (changed?.Count > 0) parts.Add("Changed: " + Names(changed!) + ".");
+            if (parts.Count == 0 && orderOnly) parts.Add("The order of the game's elements changed.");
+            return "This colony's gases and liquids differ from this game's, so it was not loaded. The save has not been changed.\n\n" +
+                (parts.Count != 0 ? string.Join("\n", parts) + "\n\n" : "") +
+                "Usually a mod that adds or changes elements was turned on or off since the colony was saved. " +
+                "Load the colony with the mods it was saved with, or start a new colony with the mods you have now.";
+        }
 
         // Where a player reports a problem. Named in every notice the player
         // cannot resolve alone.

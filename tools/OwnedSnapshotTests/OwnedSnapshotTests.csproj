@@ -29,6 +29,7 @@
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedGameDataSnapshot.cs" Link="OwnedGameDataSnapshot.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyOverlay.cs" Link="ColonyOverlay.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OniNativeColony.cs" Link="OniNativeColony.cs" />
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OniNativeColony.Material.cs" Link="OniNativeColony.Material.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyCopyValidation.cs" Link="ColonyCopyValidation.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyActivityCells.cs" Link="ColonyActivityCells.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyOwnedStorage.Mutations.cs" Link="ColonyOwnedStorage.Mutations.cs" />

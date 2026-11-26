@@ -39,12 +39,25 @@ namespace MixedAtmospheres.Oni
         internal static double RestoredReencodeMilliseconds { get; private set; }
         internal static string RestoredReencodeScope { get; private set; } = "";
 
-        private static byte[] CatalogueHash(OniNativeColony.Material[] materials)
+        private static byte[] CatalogueHash(OniNativeColony.Material[] materials) => ColonyCatalogueDifference.Hash(materials);
+
+        // A colony saved with other gases and liquids than the game's (the
+        // envelope's catalogue differs): what differs, from the records in
+        // its owner image, in the player's text; the full list in Player.log.
+        internal static string CatalogueRefusal(ReadOnlySpan<byte> owner, OniNativeColony.Material[] current)
         {
-            var bytes = new byte[materials.Length * 168];
-            fixed (byte* target = bytes)
-                for (var k = 0; k < materials.Length; ++k) Marshal.StructureToPtr(materials[k], (IntPtr)(target + k * 168), false);
-            using var hash = SHA256.Create(); return hash.ComputeHash(bytes);
+            static string? GameName(int hash)
+            {
+                var element = ElementLoader.FindElementByHash((SimHashes)hash);
+                return element?.name;
+            }
+            ColonyCatalogueDifference? difference = null;
+            try { difference = ColonyCatalogueDifference.Compare(ColonyCatalogueDifference.Saved(owner), current); }
+            catch (Exception error) { UnityEngine.Debug.LogWarning("[Mixed Atmospheres] The colony's saved gases and liquids could not be read: " + error.Message); }
+            if (difference == null || difference.Empty) return ModAdmission.CatalogueLoadRefusal(null, null, null, false);
+            UnityEngine.Debug.LogWarning("[Mixed Atmospheres] The colony's gases and liquids differ from this game's: " + difference.Log(GameName));
+            var (added, removed, changed) = difference.PlayerNames(GameName);
+            return ModAdmission.CatalogueLoadRefusal(added, removed, changed, difference.OrderOnly);
         }
         private static byte[] ConfigBytes(OniNativeColony.Config config)
         {
@@ -132,9 +145,11 @@ namespace MixedAtmospheres.Oni
             // The menu checks normally refuse this first (LoadRefusal).
             var packs = GameplayPacks.ActiveUnsupported();
             if (packs.Length != 0) throw new NotSupportedException(ModAdmission.PacksLoadRefusal(packs));
-            _ = ValidateCurrentContent(data.AsSpan(position + 4, length));
+            var content = ValidateCurrentContent(data.AsSpan(position + 4, length));
             var materials = ColonyOwner.BuildCatalogue();
-            var envelope = ColonySaveEnvelope.Parse(data.AsSpan(position + 4, length), ColonySaveEnvelope.FirstSupportedBuild, RunningBuild, MaterialModel, CatalogueHash(materials));
+            ColonySaveEnvelope envelope;
+            try { envelope = ColonySaveEnvelope.Parse(data.AsSpan(position + 4, length), ColonySaveEnvelope.FirstSupportedBuild, RunningBuild, MaterialModel, CatalogueHash(materials)); }
+            catch (ColonySaveEnvelope.CatalogueMismatch) { throw new NotSupportedException(CatalogueRefusal(content.Owner, materials)); }
             // Once the MACOLONY envelope is recognized, an unknown managed
             // payload is an incompatible mixture save, not a native save.
             var sections = ColonySavePayload.Decode(envelope.CustomData);
@@ -165,11 +180,12 @@ namespace MixedAtmospheres.Oni
         // cannot read as a Mixed Atmospheres save is left to ONI's own loader.
         internal static string? LoadRefusal(string filename)
         {
-            var reason = EnvelopeRefusal(filename, out var mixture);
+            var reason = EnvelopeRefusal(filename, out var mixture, out var complete);
             if (!mixture) return null;
             var packs = GameplayPacks.ActiveUnsupported();
             if (packs.Length != 0) return ModAdmission.PacksLoadRefusal(packs);
-            return reason == null ? null : "This colony was saved by a Mixed Atmospheres build that this one cannot continue, so it was not loaded. " +
+            // A catalogue refusal is a whole text of its own: the build is not its cause.
+            return reason == null || complete ? reason : "This colony was saved by a Mixed Atmospheres build that this one cannot continue, so it was not loaded. " +
                 "The save has not been changed.\n\n" + reason;
         }
 
@@ -183,19 +199,23 @@ namespace MixedAtmospheres.Oni
             catch (Exception) { return null; }
         }
 
-        private static string? EnvelopeRefusal(string filename, out bool mixture)
+        // `complete`: the reason is a whole refusal text (CatalogueRefusal).
+        private static string? EnvelopeRefusal(string filename, out bool mixture, out bool complete)
         {
-            mixture = false;
+            mixture = false; complete = false;
             var sim = ReadSimSection(filename);
             if (sim == null || !ColonySaveEnvelope.HasMagic(sim)) return null;
             mixture = true;
             try
             {
-                _ = ValidateCurrentContent(sim);
+                var content = ValidateCurrentContent(sim);
                 // The material catalogue is compared once elements exist (the in-game load checks it again).
-                var catalogue = ElementLoader.elements != null && ElementLoader.elements.Count != 0 ? CatalogueHash(ColonyOwner.BuildCatalogue()) :
+                var current = ElementLoader.elements != null && ElementLoader.elements.Count != 0 ? ColonyOwner.BuildCatalogue() : null;
+                var catalogue = current != null ? CatalogueHash(current) :
                     sim.Length >= 60 ? sim.AsSpan(28, ColonySaveEnvelope.CatalogHashBytes).ToArray() : new byte[ColonySaveEnvelope.CatalogHashBytes];
-                var envelope = ColonySaveEnvelope.Parse(sim, ColonySaveEnvelope.FirstSupportedBuild, RunningBuild, MaterialModel, catalogue);
+                ColonySaveEnvelope envelope;
+                try { envelope = ColonySaveEnvelope.Parse(sim, ColonySaveEnvelope.FirstSupportedBuild, RunningBuild, MaterialModel, catalogue); }
+                catch (ColonySaveEnvelope.CatalogueMismatch) when (current != null) { complete = true; return CatalogueRefusal(content.Owner, current); }
                 var payload = ColonySavePayload.Decode(envelope.CustomData);
                 _ = ColonyCheckpointMetadata.Profile(payload.Owner);
                 if (payload.Section(ColonySavePayload.ColonySettings) is byte[] settings) _ = ColonySettingsRecord.Decode(settings, SettingValues.Defaults());

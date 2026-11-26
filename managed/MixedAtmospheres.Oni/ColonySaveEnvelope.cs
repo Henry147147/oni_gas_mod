@@ -101,8 +101,7 @@ namespace MixedAtmospheres.Oni
                 throw new NotSupportedException("This colony was saved with an earlier Mixed Atmospheres material model (its gas pressures were computed " +
                     "differently). Start a new colony with this version.");
             if (!data.Slice(28, CatalogHashBytes).SequenceEqual(expectedMaterialCatalogHash))
-                throw new NotSupportedException("This game's gases and liquids differ from the ones this colony was saved with, so its fluids cannot continue " +
-                    "without a save migration that this Mixed Atmospheres version does not have.");
+                throw new CatalogueMismatch();
             var nativeLength = BinaryPrimitives.ReadInt64LittleEndian(data.Slice(60));
             var customLength = BinaryPrimitives.ReadInt64LittleEndian(data.Slice(68));
             // Compare lengths using subtraction, before any conversion/allocation
@@ -138,6 +137,15 @@ namespace MixedAtmospheres.Oni
         }
 
         internal byte[] CopyEncodedData() => (byte[])bytes.Clone();
+
+        // The colony's gases and liquids are not the game's current ones. The
+        // load paths catch it and say what differs (ColonyCatalogueDifference,
+        // ModAdmission.CatalogueLoadRefusal).
+        internal sealed class CatalogueMismatch : NotSupportedException
+        {
+            internal CatalogueMismatch() : base("This game's gases and liquids differ from the ones this colony was saved with, so its fluids cannot continue " +
+                "without a save migration that this Mixed Atmospheres version does not have.") { }
+        }
 
         private static void ValidateIdentity(int oniBuild, int modelVersion, ReadOnlySpan<byte> catalogHash)
         {

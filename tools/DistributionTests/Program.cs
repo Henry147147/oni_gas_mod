@@ -119,6 +119,54 @@ static class Program
                 refusal.LoadRefusal.StartsWith("This colony uses Mixed Atmospheres, which is not active ", StringComparison.Ordinal), "complete refusal: " + refusal.Kind);
     }
 
+    // A colony saved with other gases and liquids than the game's (ColonyCatalogueDifference,
+    // ModAdmission.CatalogueLoadRefusal): what differs, in names, and what to do.
+    private static OniNativeColony.Material Element(int hash, uint index, string id, uint phase = 1, double heat = 1000) => new OniNativeColony.Material
+    {
+        Size = 168, Version = 1, ElementHash = hash, NativeIndex = index, Phase = phase, MolarMassKgPerMol = 0.032, SpecificHeatJPerKgK = heat,
+        ConductivityWPerMK = 0.02, LowTemperatureK = 50, HighTemperatureK = 500, LowTarget = hash + 1, HighTarget = hash + 2, Id = id,
+    };
+
+    private static void Catalogues()
+    {
+        var saved = new[] { Element(1, 0, "Oxygen"), Element(2, 1, "Water", 2), Element(3, 2, "Steam"), Element(4, 3, "Milk", 2) };
+        Check(ColonyCatalogueDifference.Decode(ColonyCatalogueDifference.Encode(saved), saved.Length).SequenceEqual(saved), "records round-trip through their bytes");
+        Check(ColonyCatalogueDifference.Hash(saved).SequenceEqual(ColonyCatalogueDifference.Hash(ColonyCatalogueDifference.Decode(ColonyCatalogueDifference.Encode(saved), 4))), "hash of decoded records");
+        Check(ColonyCatalogueDifference.Compare(saved, saved).Empty, "the same catalogue has no difference");
+        string? Names(int hash) => hash switch { 2 => "<link=\"WATER\">Water</link>", 4 => "<link=\"MILK\">Brackene</link>", 9 => "<link=\"MOLTENSILICONRP\">Moltten Silicon</link>", 10 => "Silicon Gas", _ => null };
+        // A mod that adds two fluids and changes one, appended after the base elements.
+        var milk = saved[3]; milk.HighTarget = 99;
+        var current = new[] { saved[0], saved[1], saved[2], milk, Element(9, 4, "MoltenSiliconRP", 2), Element(10, 5, "SiliconGasRP") };
+        var added = ColonyCatalogueDifference.Compare(saved, current);
+        var (newNames, gone, changed) = added.PlayerNames(Names);
+        Check(newNames.SequenceEqual(new[] { "Moltten Silicon", "Silicon Gas" }) && gone.Length == 0 && changed.SequenceEqual(new[] { "Brackene" }) && !added.OrderOnly, "added and changed: " + string.Join(",", newNames.Concat(changed)));
+        var log = added.Log(Names);
+        Check(log.StartsWith("2 added, 0 removed, 1 changed (0 only in their place in the element list); saved with 4 gases and liquids, the game has 6:", StringComparison.Ordinal) &&
+            log.Contains("\n  added Moltten Silicon (MoltenSiliconRP)") && log.Contains("\n  changed Brackene (Milk): transition targets"), log);
+        // The other way: the colony was saved with the mod; the game has neither its fluids nor its edit.
+        var removed = ColonyCatalogueDifference.Compare(current, saved);
+        var (_, missing, _) = removed.PlayerNames(hash => hash == 9 || hash == 10 ? null : Names(hash));
+        Check(missing.SequenceEqual(new[] { "MoltenSiliconRP", "SiliconGasRP" }) && removed.Changed.Count == 1, "a saved-only element is named by its saved ID");
+        // Another element earlier in the list moves every later one: only the order is worth telling.
+        var moved = saved.Select(m => { m.NativeIndex += 1; return m; }).ToArray();
+        var order = ColonyCatalogueDifference.Compare(saved, moved);
+        Check(order.OrderOnly && order.PlayerNames(Names).Changed.Length == 0 && order.Log(Names).Contains("changed Water: index only"), "index-only difference");
+        var both = ColonyCatalogueDifference.Compare(saved, current.Select((m, k) => { if (m.ElementHash == 1) { m.NativeIndex = 7; m.SpecificHeatJPerKgK = 1005; } return m; }).ToArray());
+        Check(both.Log(Names).Contains("\n  changed Oxygen: heat capacity, index") && !both.OrderOnly && both.PlayerNames(Names).Changed.Contains("Oxygen"), both.Log(Names));
+        Check(ColonyCatalogueDifference.Plain("<link=\"OXYGEN\"><b>Oxygen</b></link> ") == "Oxygen", "markup is stripped");
+
+        const string Lead = "This colony's gases and liquids differ from this game's, so it was not loaded. The save has not been changed.\n\n";
+        const string Remedy = "Usually a mod that adds or changes elements was turned on or off since the colony was saved. " +
+            "Load the colony with the mods it was saved with, or start a new colony with the mods you have now.";
+        var text = ModAdmission.CatalogueLoadRefusal(newNames, gone, changed, false);
+        Check(text == Lead + "New in this game: Moltten Silicon and Silicon Gas.\nChanged: Brackene.\n\n" + Remedy, text);
+        Check(!text.Contains("build"), "the Mixed Atmospheres build is not named as the cause");
+        var many = ModAdmission.CatalogueLoadRefusal(Array.Empty<string>(), new[] { "A", "B", "C", "D", "E", "F" }, new[] { "W", "X", "Y", "Z" }, false);
+        Check(many.Contains("Missing from this game: A, B, C and 3 more.\nChanged: W, X, Y and Z.\n\n"), many);
+        Check(ModAdmission.CatalogueLoadRefusal(new string[0], new string[0], new string[0], true) == Lead + "The order of the game's elements changed.\n\n" + Remedy, "order only");
+        Check(ModAdmission.CatalogueLoadRefusal(null, null, null, false) == Lead + Remedy, "unreadable saved table: what to do only");
+    }
+
     private static bool Refused(Action parse, string why)
     {
         try { parse(); } catch (NotSupportedException error) { Check(error.Message.Contains(why), "refusal names its reason: " + error.Message); return true; }
@@ -178,12 +226,34 @@ static class Program
             Check(ColonySaveEnvelope.Parse(sim, build, model, catalog).EncodedLength == sim!.Length, "the real envelope parses unchanged");
             var later = ColonySaveEnvelope.Parse(sim, ColonySaveEnvelope.FirstSupportedBuild, build + 1, model, catalog);
             Check(later.OniBuild == build && later.CopyEncodedData().AsSpan().SequenceEqual(sim!), "a later verified build accepts the real envelope byte for byte");
+            // The owner image holds the records the envelope's catalogue hash was taken over.
+            var saved = ColonyCatalogueDifference.Saved(ColonySavePayload.Decode(later.CustomData).Owner);
+            Check(saved.Length > 0 && ColonyCatalogueDifference.Hash(saved).AsSpan().SequenceEqual(catalog), "the saved material records hash to the envelope's catalogue: " + path);
+            Check(ColonyCatalogueDifference.Compare(saved, saved).Empty, "a real catalogue against itself");
+            if (Environment.GetEnvironmentVariable("MA_TEST_PRINT_CATALOGUE") == "1") PrintRephysicalized(path, saved);
             var other = (byte[])catalog.Clone(); other[0] ^= 1;
             Check(Refused(() => ColonySaveEnvelope.Parse(sim, ColonySaveEnvelope.FirstSupportedBuild, build + 1, model, other), "save migration"), "a changed catalogue refuses the real envelope");
             Check(Refused(() => ColonySaveEnvelope.Parse(sim, ColonySaveEnvelope.FirstSupportedBuild, build - 1, model, catalog), "newer game build"), "an older running build refuses it");
             ++checkedSaves;
         }
         return checkedSaves;
+    }
+
+    // The refusals a real colony would get with Rephysicalized turned on or off (its two fluids
+    // appended, Brackene's boiling target changed as its ElementalPatches do); printed for review only.
+    private static void PrintRephysicalized(string path, OniNativeColony.Material[] saved)
+    {
+        var next = saved.Max(m => m.NativeIndex) + 1;
+        var current = saved.Select(m => { if (m.Id == "Milk") m.HighTarget ^= 1; return m; })
+            .Concat(new[] { Element(-1, next, "MoltenSiliconRP", 2), Element(-2, next + 1, "SiliconGasRP") }).ToArray();
+        string? Name(int hash) => hash == -1 ? "<link=\"MOLTENSILICONRP\">Moltten Silicon</link>" : hash == -2 ? "<link=\"SILICONGASRP\">Silicon Gas</link>" :
+            saved.FirstOrDefault(m => m.ElementHash == hash).Id == "Milk" ? "Brackene" : null;
+        foreach (var (title, from, to, names) in new[] { ("added", saved, current, (Func<int, string?>)Name), ("removed", current, saved, h => h < 0 ? null : Name(h)) })
+        {
+            var difference = ColonyCatalogueDifference.Compare(from, to);
+            var (a, r, c) = difference.PlayerNames(names);
+            Console.WriteLine($"--- {Path.GetFileName(path)}, Rephysicalized {title}\nlog: {difference.Log(names)}\nplayer:\n{ModAdmission.CatalogueLoadRefusal(a, r, c, difference.OrderOnly)}");
+        }
     }
 
     // The content decision the game makes at load (ColonyOwnerPersistence.ValidateCurrentContent), engine-free.
@@ -239,7 +309,7 @@ static class Program
 
     private static int Main()
     {
-        Platforms(); Packs(); Duplicates(); GameRefusals(); SyntheticEnvelopes();
+        Platforms(); Packs(); Duplicates(); GameRefusals(); Catalogues(); SyntheticEnvelopes();
         var real = RealEnvelopes();
         var content = PreparedContent();
         Console.WriteLine(content == 0 ? "Prepared base saves: none available, skipped." : $"Prepared base saves: {content} content decisions pinned.");
