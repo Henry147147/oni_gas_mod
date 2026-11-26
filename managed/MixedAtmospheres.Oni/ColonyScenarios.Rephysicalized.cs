@@ -35,9 +35,33 @@ namespace MixedAtmospheres.Oni
     internal static partial class ColonyScenarios
     {
         private static GameObject? rpBurner, rpThin, rpCrop, rpReservoir, rpPress, rpVent;
-        // Rephysicalized's polymerizer recipe (PolymerizerConfig_ConfigureBuildingTemplate_Patch):
-        // 0.8 kg/s of plastifiable liquid -> 0.5 kg/s polypropylene, 0.15 steam, 0.15 carbon dioxide.
-        private const double RpPetroleumPerPlastic = 0.8 / 0.5;
+        // The recipe of the press as built: the converter that takes petroleum and makes polypropylene
+        // (Rephysicalized's: 0.8 kg/s of plastifiable liquid -> 0.5 kg/s polypropylene, 0.15 steam and
+        // 0.15 carbon dioxide; its second converter takes resin). Petroleum per kg of polypropylene,
+        // what it consumes besides petroleum, and a description of every converter for the detail.
+        private static (double perPlastic, string others, string description) RpRecipe(GameObject? press)
+        {
+            if (press == null) return (double.NaN, "", "no press");
+            var petroleum = ElementLoader.FindElementByHash(SimHashes.Petroleum);
+            double perPlastic = double.NaN; var others = new List<string>(); var all = new List<string>();
+            foreach (var converter in press.GetComponents<ElementConverter>())
+            {
+                var consumed = converter.consumedElements ?? new ElementConverter.ConsumedElement[0];
+                var made = converter.outputElements ?? new ElementConverter.OutputElement[0];
+                all.Add("[" + string.Join(" + ", consumed.Select(c => $"{c.Tag.Name} {c.MassConsumptionRate:G4}")) + " -> " +
+                    string.Join(" + ", made.Select(o => $"{o.elementHash} {o.massGenerationRate:G4}")) + " kg/s]");
+                var input = consumed.Where(c => petroleum.HasTag(c.Tag) || c.Tag == petroleum.tag).Sum(c => (double)c.MassConsumptionRate);
+                var plastic = made.Where(o => o.elementHash == SimHashes.Polypropylene).Sum(o => (double)o.massGenerationRate);
+                if (input > 0 && plastic > 0 && double.IsNaN(perPlastic))
+                {
+                    perPlastic = input / plastic;
+                    others.AddRange(consumed.Where(c => !(petroleum.HasTag(c.Tag) || c.Tag == petroleum.tag)).Select(c => c.Tag.Name));
+                    var outTotal = made.Sum(o => (double)o.massGenerationRate); var inTotal = consumed.Sum(c => (double)c.MassConsumptionRate);
+                    if (outTotal > inTotal * (1 + 1e-6)) all.Add($"(this recipe makes {outTotal:G4} kg/s from {inTotal:G4} kg/s: more mass than it takes)");
+                }
+            }
+            return (perPlastic, string.Join(", ", others), string.Join(" ", all));
+        }
         private static List<int> rpPipe = new List<int>();
         private static int rpActiveA, rpActiveB;
         private const int RpWidth = 27;
@@ -75,7 +99,9 @@ namespace MixedAtmospheres.Oni
             var (from, to) = RpRoom(room); double total = 0;
             foreach (var item in Components.Pickupables.Items)
             {
-                if (item == null || item.GetComponent<PrimaryElement>() is not PrimaryElement e || e.ElementID != element) continue;
+                // Items held in a storage are pickupables too, at the building: those are counted by Stored.
+                if (item == null || item.storage != null || item.KPrefabID.HasTag(GameTags.Stored)) continue;
+                if (item.GetComponent<PrimaryElement>() is not PrimaryElement e || e.ElementID != element) continue;
                 Grid.CellToXY(Grid.PosToCell(item), out var x, out var y);
                 if (x >= x0 + from && x <= x0 + to && y >= y0 && y < y0 + Height) total += e.Mass;
             }
@@ -184,18 +210,20 @@ namespace MixedAtmospheres.Oni
                     $"buffer {gasStorage:G4} kg, starved {starved?.ToString() ?? "unknown"}, wilting {wilting}; {RpLedger(rpCrop)}");
 
                 // D: the polymerizer's own pipe intake. What left the reservoir and is no longer in the pipe
-                // reached the press: it holds it, or converted it (its polypropylene, stored or dropped as debris
-                // in room D, at the recipe's 1.6 kg petroleum per kg).
+                // reached the press: it holds it, or its converter consumed it (its polypropylene, stored or
+                // dropped as debris in room D, at the petroleum per kg of polypropylene of the press as built).
                 double piped = 0;
                 foreach (var cell in rpPipe) piped += Game.Instance.liquidConduitFlow.GetContents(cell).mass;
                 var left = Stored(rpReservoir, SimHashes.Petroleum); var taken = recorded.TryGetValue("D petroleum", out var start) ? start - left - piped : 0;
                 var pressHeld = Stored(rpPress, SimHashes.Petroleum);
                 var plastic = Stored(rpPress, SimHashes.Polypropylene) + RpDebris(SimHashes.Polypropylene, 'D');
-                var converted = plastic * RpPetroleumPerPlastic;
+                var (perPlastic, otherInputs, recipe) = RpRecipe(rpPress);
+                var converted = plastic * perPlastic;
                 Record("the polymerizer's intake took piped petroleum", taken > .1,
                     $"reservoir {start:G6} -> {left:G6} kg, {piped:G4} kg in the {rpPipe.Count}-segment pipe, so {taken:G6} kg reached the press; {MachineState(rpPress)}");
-                Record("what the press took is in it or converted (within 0.01 kg + 0.5 %)", Math.Abs(pressHeld + converted - taken) <= .01 + .005 * taken,
-                    $"the press holds {pressHeld:G6} kg petroleum and made {plastic:G6} kg polypropylene ({converted:G6} kg petroleum); {pressHeld + converted:G6} kg against {taken:G6} kg taken");
+                Record("what the press took is in it or its converter consumed it (within 0.01 kg + 0.5 %)", !double.IsNaN(perPlastic) && Math.Abs(pressHeld + converted - taken) <= .01 + .005 * taken,
+                    $"the press holds {pressHeld:G6} kg petroleum and made {plastic:G6} kg polypropylene, at {perPlastic:G4} kg petroleum per kg {converted:G6} kg petroleum; " +
+                    $"{pressHeld + converted:G6} kg against {taken:G6} kg taken" + (otherInputs.Length != 0 ? $"; that converter also consumes {otherInputs}" : "") + $"; converters {recipe}");
                 if (!Vanilla) LedgersClosed("rephysicalized");
                 Finish();
             }
