@@ -99,13 +99,13 @@ namespace MixedAtmospheres.Oni
         // that the build number does not account for: a Mixed Atmospheres
         // update is needed, unless every difference is another mod's patch.
         internal static ModAdmission.GameRefusal NewerBuildDifferences(int running, int supported, List<string> differences, List<GameContractCheck.ModPatched> modPatched) =>
-            modPatched.Count == differences.Count ? Differences(running, differences, modPatched)
+            modPatched.Count == differences.Count ? Differences(running, differences, modPatched, supported)
                 : ModAdmission.NewerBuildChanged(ModVersion, running, supported, differences.Where(d => !modPatched.Any(m => m.Difference == d)).ToArray());
 
         // Contract differences on a supported build number. When every one
         // is another mod's patch on verified code it is a mod conflict;
         // anything else means the game's code is not this build's.
-        internal static ModAdmission.GameRefusal Differences(int build, List<string> differences, List<GameContractCheck.ModPatched> modPatched)
+        internal static ModAdmission.GameRefusal Differences(int build, List<string> differences, List<GameContractCheck.ModPatched> modPatched, int checkedAgainst = 0)
         {
             if (modPatched.Count != differences.Count) return ModAdmission.GameFiles(build, differences);
             // One line per patched method: the contract can hold a method as
@@ -113,7 +113,7 @@ namespace MixedAtmospheres.Oni
             var methods = new SortedDictionary<string, MethodBase>(StringComparer.Ordinal);
             foreach (var method in modPatched.SelectMany(part => part.Methods))
                 methods[GameContractCanon.Type(method.DeclaringType).Replace('/', '.') + "." + method.Name] = method;
-            var refusal = ModAdmission.OtherMods(build, methods.Select(method => new KeyValuePair<string, string[]>(method.Key, PatchingMods(method.Value))).ToArray());
+            var refusal = ModAdmission.OtherMods(build, methods.Select(method => new KeyValuePair<string, string[]>(method.Key, PatchingMods(method.Value))).ToArray(), checkedAgainst);
             refusal.Details = methods.Select(method => method.Key + " <- " + string.Join(", ", PatchingMods(method.Value)) +
                 " (Harmony: " + string.Join(", ", Harmony.GetPatchInfo(method.Value)?.Owners ?? Enumerable.Empty<string>()) + ")").ToArray();
             return refusal;

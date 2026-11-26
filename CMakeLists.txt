@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(MixedAtmospheres VERSION 1.13.11 LANGUAGES CXX)
+project(MixedAtmospheres VERSION 1.13.12 LANGUAGES CXX)
 
 option(MA_BUILD_TESTS "Build standalone physics and ABI tests" ON)
 option(MA_SANITIZERS "Enable address and undefined-behavior sanitizers" OFF)

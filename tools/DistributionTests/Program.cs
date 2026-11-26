@@ -194,6 +194,14 @@ static class Program
         var native = ModAdmission.NewerBuildChanged("1.13.10", 770000, 764025, new[] { "the game's native simulator (SimDLL): this SimDLL (identity 0123456789abcdef) is not a verified image" });
         Check(native.Notice.Contains("one part of the game the mod uses:\n  - the game's native simulator (SimDLL)"), native.Notice);
 
+        // Only other mods' patches on a newer game that is otherwise unchanged apart from the build number.
+        var conflict = ModAdmission.OtherMods(764961, new[] { new KeyValuePair<string, string[]>("SaveLoader.Save", new[] { "Fast Track" }) }, 764025);
+        Check(conflict.Notice.Contains("Your game (build 764961) is newer than the build this version of Mixed Atmospheres was checked against (764025), " +
+            "but nothing the mod uses changed apart from the build number: neither is out of date.") && !conflict.Notice.Contains("supports your game") &&
+            conflict.Notice.Contains("Fast Track (one method)"), conflict.Notice);
+        Check(ModAdmission.OtherMods(764025, new[] { new KeyValuePair<string, string[]>("SaveLoader.Save", new[] { "Fast Track" }) }, 764025).Notice
+            .Contains("supports your game (build 764025): neither is out of date"), "the contract's own build keeps its wording");
+
         // Accepted: one Player.log entry naming both builds and every forgiven entry.
         var log = ModAdmission.ToleratedBuildLog(764961, 764025, 3020, new[] { "named KleiVersion::ChangeList", "patch target Game::Save(System.IO.BinaryWriter)System.Void" }, 512.4);
         Check(log == "Game build 764961 is newer than the build this version was checked against (764025); every part of the game the mod uses is unchanged " +

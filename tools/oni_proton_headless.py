@@ -432,7 +432,7 @@ def playtest(args, state: Path, session: dict) -> int:
             raise ValueError("Proton profile escaped this run")
         mod = profile / "mods/Dev" / MOD_ID
         common.stage_package(package, mod, manifest, "win-x64")
-        mod = common.validation_folder(mod, manifest, build)
+        mod = common.validation_folder(mod, manifest, build, args.newer_game_control)
         if dlc_mask is not None:
             common.oni_dlc.write_preferences(profile, dlc_mask)
             result["requested_dlc"] = common.oni_dlc.selection(dlc_mask)
@@ -720,6 +720,9 @@ def main() -> int:
     parser.add_argument("--game-dir", type=Path, default="/mnt/data/share/oni/OxygenNotIncluded")
     parser.add_argument("--proton", type=Path, required=True, help="Installed complete Proton tool root")
     parser.add_argument("--package", type=Path, required=True)
+    parser.add_argument("--newer-game-control", action="store_true",
+                        help="Control run: allow a game build newer than the package's newest supported build "
+                             "(the package's own tolerated-newer-build check decides)")
     parser.add_argument("--capture-inputs", action="store_true",
                         help="Write private owner replay inputs and disease table into this load run directory")
     parser.add_argument("--require-exposed-vents", action="store_true",

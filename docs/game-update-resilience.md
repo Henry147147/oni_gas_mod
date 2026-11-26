@@ -388,7 +388,9 @@ builds stay refused by their number, as before.
 
   Player.log lists every difference and every forgiven entry. If all remaining
   differences are other mods' patches, the [other-mods](#other-mods) notice is
-  shown instead. If the managed side is accepted but the `SimDLL` is not a
+  shown instead; it then says that the game is newer than the build the mod
+  was checked against but unchanged apart from the build number. If the
+  managed side is accepted but the `SimDLL` is not a
   verified or carried image, the same update notice names the native
   simulator.
 
@@ -467,6 +469,12 @@ The constant is the immediate of `AppVersion::GetRevision` (PDB public
   every entry with a reading given a wrong exact value, each is forgiven; one
   reading changed too, that entry is refused by name; a changed entry without
   a reading is refused; for the contract's own build, nothing is forgiven.
+- **In the game.** A single-build development package for an earlier build
+  (`package_probe.py --single-build --game-dir <that build>`) is the newest
+  adapter it carries. The harnesses refuse a game newer than a package's
+  newest build unless `--newer-game-control` is given
+  (`tools/oni_headless.py run`, `tools/oni_proton_headless.py`). With the
+  option, ONI loads the root content and the package's own check decides.
 - **Unit** (`tools/DistributionTests`). The substitution (whole words, every
   occurrence, exactness, escaping), the root and in-between decision, the
   refusal notice and the Player.log text.

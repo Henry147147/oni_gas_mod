@@ -208,7 +208,9 @@ namespace MixedAtmospheres.Oni
         // The build is supported and its code is the verified code, but other
         // mods patched methods the mod depends on before it loaded. `parts`
         // pairs each such game method with the mods that patched it.
-        internal static GameRefusal OtherMods(int build, IReadOnlyList<KeyValuePair<string, string[]>> parts)
+        // `checkedAgainst`: on a newer game accepted apart from other mods'
+        // patches, the build this copy was checked against (0 otherwise).
+        internal static GameRefusal OtherMods(int build, IReadOnlyList<KeyValuePair<string, string[]>> parts, int checkedAgainst = 0)
         {
             var mods = parts.SelectMany(part => part.Value.Distinct(StringComparer.Ordinal)).GroupBy(name => name, StringComparer.Ordinal)
                 .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
@@ -217,7 +219,10 @@ namespace MixedAtmospheres.Oni
             {
                 Kind = "other mods changed game code the mod depends on",
                 Notice = "Mixed Atmospheres is not active because " + (mods.Length == 1 ? "another mod has" : "other mods have") + " changed game code it depends on. " +
-                    "This version of Mixed Atmospheres supports your game (build " + build + "): neither is out of date.\n\n" +
+                    (checkedAgainst > 0 && checkedAgainst != build
+                        ? "Your game (build " + build + ") is newer than the build this version of Mixed Atmospheres was checked against (" + checkedAgainst +
+                          "), but nothing the mod uses changed apart from the build number: neither is out of date.\n\n"
+                        : "This version of Mixed Atmospheres supports your game (build " + build + "): neither is out of date.\n\n") +
                     (parts.Count == 1 ? "One game method it uses was" : parts.Count + " game methods it uses were") + " patched by:\n" +
                     Shown(mods, 6, "mods") + "\n\n" +
                     "Try disabling " + (mods.Length == 1 ? "that mod" : "those mods") + " and restart the game. To use " + (mods.Length == 1 ? "it" : "them") +
