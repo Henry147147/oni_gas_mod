@@ -20,6 +20,13 @@ namespace MixedAtmospheres.Oni
     //   io-failure  an ordinary save whose destination is a directory: ONI's
     //               writer fails after serialization; the owner must keep
     //               running, nothing is left at the path, and a later save works.
+    //   save-pair-read  two ordinary paused saves back to back (pair-1.sav,
+    //               pair-2.sav), then at once the check a load from the menu
+    //               makes (LoadScreen.DoLoad's ColonyOwnerPersistence.LoadRefusal)
+    //               on the second and on an earlier control's autosave: under
+    //               Moono's background-save a save holds only its header until
+    //               its write lands (PendingSaveWrite); each must read as a
+    //               Mixed Atmospheres save that the check accepts.
     internal static class ColonySaveControls
     {
         private static readonly string[] Controls = (Environment.GetEnvironmentVariable("MA_COLONY_SAVE_CONTROL") ?? "")
@@ -33,12 +40,14 @@ namespace MixedAtmospheres.Oni
         internal static string ParticlePath { get; private set; } = "";
         internal static int SavesBefore { get; private set; } = -1;
         internal static int AutoSaves { get; private set; }
+        // save-pair-read: how many of the saves it read were still being written then.
+        internal static int PendingAtRead { get; private set; }
         internal static bool Done => index >= Controls.Length;
         // During a scenario: the owner frame (after the run's start) at which the controls run.
         internal static ulong? ScenarioFrame => ulong.TryParse(Environment.GetEnvironmentVariable("MA_COLONY_SAVE_FRAME"), out var frame) ? frame : (ulong?)null;
         internal static object? Report() => Controls.Length == 0 ? null :
-            new { Controls, Completed = index, Details = details.ToArray(), AutosavePath, ParticlePath, AutoSaves };
-        internal static void Reset() { index = 0; Stage = 0; details.Clear(); AutosavePath = ParticlePath = ""; SavesBefore = -1; AutoSaves = 0; }
+            new { Controls, Completed = index, Details = details.ToArray(), AutosavePath, ParticlePath, AutoSaves, PendingAtRead };
+        internal static void Reset() { index = 0; Stage = 0; details.Clear(); AutosavePath = ParticlePath = ""; SavesBefore = -1; AutoSaves = 0; PendingAtRead = 0; }
         private static void Complete(string detail) { details.Add(Control + ": " + detail); ++index; Stage = 0; }
 
         // Called each validation update before the frame target is reached.
@@ -125,6 +134,31 @@ namespace MixedAtmospheres.Oni
                     if (ColonyOwnerPersistence.Saves != SavesBefore + 1 || !File.Exists(path) || ColonySavedParticles.SavedCount < 1)
                         throw new InvalidOperationException("The particle save did not keep its in-flight CO2.");
                     ParticlePath = path; Complete($"saved {ColonySavedParticles.SavedCount} particles at owner frame {ColonyOwnerPersistence.LastSavedFrame}");
+                    return;
+                }
+                case "save-pair-read":
+                {
+                    SpeedControlScreen.Instance.Pause(false);
+                    SavesBefore = ColonyOwnerPersistence.Saves; Stage = 1;
+                    var first = Path.Combine(outputDirectory, "pair-1.sav");
+                    var second = Path.Combine(outputDirectory, "pair-2.sav");
+                    SaveLoader.Instance.Save(first, false, false);
+                    SaveLoader.Instance.Save(second, false, false);
+                    if (ColonyOwnerPersistence.Saves != SavesBefore + 2) throw new InvalidOperationException("The two control saves were not both written.");
+                    var read = new System.Collections.Generic.List<string>();
+                    foreach (var path in AutosavePath.Length != 0 ? new[] { second, first, AutosavePath } : new[] { second, first })
+                    {
+                        var pending = ColonyOwnerPersistence.SaveWritePending(path);
+                        var clock = System.Diagnostics.Stopwatch.StartNew();
+                        var refusal = ColonyOwnerPersistence.LoadRefusal(path);
+                        var waited = clock.ElapsedMilliseconds;
+                        if (refusal != null) throw new InvalidOperationException("The menu's load check refused " + Path.GetFileName(path) + " just saved: " + refusal);
+                        if (!ColonyOwnerPersistence.IsMixtureSave(path)) throw new InvalidOperationException(Path.GetFileName(path) + " does not read as a Mixed Atmospheres save after its write.");
+                        read.Add($"{Path.GetFileName(path)} {(pending ? "still being written" : "complete")} at the check, accepted after {waited} ms");
+                        if (pending) ++PendingAtRead;
+                    }
+                    ParticlePath = second;
+                    Complete($"two saves at owner frame {ColonyOwnerPersistence.LastSavedFrame}; " + string.Join("; ", read));
                     return;
                 }
                 default: throw new InvalidDataException("Unknown MA_COLONY_SAVE_CONTROL: " + Control);

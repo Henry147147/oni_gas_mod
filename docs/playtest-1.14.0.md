@@ -226,18 +226,11 @@ package, 9,000 owner frames at speed 3:
 
 ## Staged package
 
-PENDING(release tier)
+No package of 1.14.0 was staged. The user decided on 2026-11-26 to "just
+work on version 1.15.0 and ship when both supported items are confirmed";
+the 1.14.0 release chain was stopped during its builds, and 1.14.0 is
+neither tested as a release nor uploaded. The development results above
+stand as recorded. Everything in 1.14.0 ships in
+[1.15.0](playtest-1.15.0.md), with Moono support and the 1.13.10 pipe-save
+fix.
 
-The chain `artifacts/v1.14.0/accept-pre.sh` on the cut revision:
-
-| Step | Result |
-| --- | --- |
-| Release builds (Linux for Ubuntu 22.04, Windows), package for game builds 744825, 763796 and 764025, archive verification | PENDING |
-| Five of the user's share saves (Cycles 33, 44, 70, 128, 130) on the release folder with the seven other mods, Linux: load, 300 ticks at speed 3, save | PENDING |
-| Rephysicalized on the release folder: main menu with it first; new Spaced Out! colonies with it first and after, 600 ticks, saved; the two-mod colony reloaded; the element notices for the Cycle 130 save with it and for the two-mod colony without it | PENDING |
-| The mod-off control (stand-in with its patches removed) refuses the Cycle 128 save; the stand-in's patches accepted | PENDING |
-| The Cycle 130 save with the seven mods, Windows build under Proton | PENDING |
-| A new Spaced Out! colony with Rephysicalized first, Windows build under Proton | PENDING |
-| Stage, Workshop dry run | PENDING |
-| Load matrix (the three game builds, Linux and Windows under Proton) | PENDING |
-| Patch tier with the batches of `rephysicalized`, `message-edges` and `building-emitter` | PENDING |

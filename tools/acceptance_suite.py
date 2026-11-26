@@ -269,7 +269,7 @@ class Infra:
     moono: Path | None = None
 
 
-def linux_player(infra, platform: str = "linux") -> list[str]:
+def linux_player(infra, platform: str = "linux", tweaks: str = MOONO_TWEAKS) -> list[str]:
     """The player of a Linux game step, for every command that starts tools/oni_headless.py run: Unity's
     (the original) for `linux` steps; for `moono` steps, Moono's with its default tweaks on the harness's own
     Xvfb desktop (no --gpu-display: Moono needs a connected monitor, and Vulkan still renders on the GPU there)."""
@@ -277,7 +277,7 @@ def linux_player(infra, platform: str = "linux") -> list[str]:
         return []
     if getattr(infra, "moono", None) is None:
         raise Refused("A moono step needs a Moono player folder (--moono, default " + str(SHARED / MOONO_PLAYER) + ")")
-    return ["--moono", str(infra.moono), "--moono-tweaks", MOONO_TWEAKS]
+    return ["--moono", str(infra.moono), "--moono-tweaks", tweaks]
 
 
 def display_arguments(infra, platform: str) -> list[str]:
@@ -323,6 +323,33 @@ def moono_twins(steps: list[Step]) -> list[Step]:
             and step.kind not in MOONO_EXCLUDED]
 
 
+# Release-tier steps that only Moono has (docs/performance-acceptance.md#moono).
+MOONO_ALTERED_FILE = "OxygenNotIncluded_Data/Managed/Assembly-CSharp-firstpass.dll"
+MOONO_SHORT_RUN = ("--frames", "600", "--speed", "3")
+
+
+def moono_only() -> list[Step]:
+    build, cycle = ("linux-build",), ("moono-one-cycle",)
+    return [
+        # The refused mod's load guard where CoreCLR sees the cause: the run's own copy of a game file changed.
+        Step("moono-refused-guard", "moono", "refused-guard", cycle, {"altered": MOONO_ALTERED_FILE}),
+        # A colony Moono saved (default tweaks: background saving, .NET's zlib) loads and runs on Unity's
+        # player. The reverse, a save of Unity's player under Moono, is moono-one-cycle and moono-ten-cycle:
+        # they load the frozen save Unity's player made.
+        Step("moono-cross-save", "moono", "cross-save", cycle, {"frames": 300}),
+        # The game's autosave, then two saves back to back and at once the menu's load check of each,
+        # while Moono's background writes may still be on their way (ColonySaveControls save-pair-read).
+        Step("moono-autosave-load", "moono", "run", build, {"dlc_mask": 1, "arguments": MOONO_SHORT_RUN,
+             "env": {"MA_COLONY_SAVE_CONTROL": "autosave,save-pair-read"}, "save_controls": 2}),
+        # The same short new colony without Moono's tweaks and with all of them.
+        Step("moono-tweaks-none", "moono", "run", build, {"dlc_mask": 1, "arguments": MOONO_SHORT_RUN, "moono_tweaks": "none"}),
+        Step("moono-tweaks-all", "moono", "run", build, {"dlc_mask": 1, "arguments": MOONO_SHORT_RUN, "moono_tweaks": "all"}),
+        # Moono's own verify modes (ONI_TWEAK_VERIFY=1) beside the owner: its qa-tools.py verify judges the log.
+        Step("moono-tweak-verify", "moono", "run", build, {"dlc_mask": 1, "arguments": MOONO_SHORT_RUN,
+             "env": {"ONI_TWEAK_VERIFY": "1"}, "tweak_verify": True}),
+    ]
+
+
 def plan(tier: str, platforms: tuple[str, ...] = ("linux", "windows"), scenarios: tuple[str, ...] = ()) -> list[Step]:
     if tier not in TIERS:
         raise ValueError("unknown acceptance tier: " + tier)
@@ -335,7 +362,7 @@ def plan(tier: str, platforms: tuple[str, ...] = ("linux", "windows"), scenarios
         steps = plan(tier, own, scenarios) if own else []
         if "linux" not in platforms:
             steps = [step for step in linux if step.name == "linux-build"] + steps
-        return steps + moono_twins(linux)
+        return steps + moono_twins(linux) + (moono_only() if tier == "release" else [])
     if scenarios and tier != "patch":
         raise ValueError("--scenario extends the patch tier")
     if tier == "patch":
@@ -764,9 +791,17 @@ def build_windows(layout: Layout, revision: str, infra: Infra) -> tuple[dict, di
 # ---------------------------------------------------------------- game commands
 
 def linux_command(step: Step, package: Path, output: Path, infra: Infra, load: Path | None = None) -> list[str]:
+    # A cross-save step loads Moono's save on Unity's player.
+    player = "linux" if step.kind == "cross-save" else step.platform
     command = [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package),
-               *linux_player(infra, step.platform)]
-    display = display_arguments(infra, step.platform)
+               *linux_player(infra, player, step.options.get("moono_tweaks", MOONO_TWEAKS))]
+    display = display_arguments(infra, player)
+    if step.kind == "cross-save":
+        return command + ["--dlc-mask", "0", "--mode", "colony-owner-load", "--load-save", str(load), "--frames", str(step.options["frames"]),
+                          "--timeout", str(LINUX_TIMEOUT), *display, "--output", str(output)]
+    if step.kind == "refused-guard":
+        return command + ["--mode", "menu", "--resume-save", str(load), "--altered-game-file", step.options["altered"],
+                          *display, "--timeout", "600", "--output", str(output)]
     if step.kind == "cycle":
         # The frozen save is a base-game colony: pin the content so the run does not depend on which
         # game install the harness defaults to (a Spaced Out!-enabled install would otherwise be the
@@ -780,6 +815,8 @@ def linux_command(step: Step, package: Path, output: Path, infra: Infra, load: P
     # Proton runner does by default.
     command += ["--dlc-mask", str(step.options.get("dlc_mask", 0)), "--mode", "colony-owner", *display,
                 "--timeout", str(LINUX_TIMEOUT), "--output", str(output)]
+    if step.kind == "run":
+        return command + list(step.options["arguments"])
     if step.kind == "batch":
         first = OTHER_MOD_SCENARIOS.get(step.options["scenario"])
         return command + ["--scenario", step.options["scenario"], *step.options.get("arguments", ()),
@@ -1183,20 +1220,68 @@ def menu_other_mod_command(package: Path, output: Path, infra: Infra, mod: Path,
 
 # What every moono step also requires (MOONO_EXCLUDED aside): the game ran through Moono, its release is recorded,
 # and the mod verified the game there ("Game build N verified on Moono vX", GameBuildCheck.VerifyManaged).
-def moono_checks(output: Path) -> tuple[dict, dict]:
+def moono_checks(output: Path, tweaks: str = MOONO_TWEAKS, refused: bool = False) -> tuple[dict, dict]:
     result = read_json(output / "result.json") if (output / "result.json").is_file() else {}
     player = result.get("moono_player") or {}
     release = player.get("release")
     log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").is_file() else ""
-    verified = re.search(r"\[Mixed Atmospheres\] Game build \d+ verified on Moono (\S+):", log)
+    verified = re.search(r"\[Mixed Atmospheres\] (?:Game build \d+ verified|Not active on game build \d+) on Moono (\S+?)[: ]", log)
+    source = (player.get("tweaks_effective") or {}).get("source")
     checks = {"ran_on_moono": result.get("player") == "moono",
               "moono_release_recorded": bool(release),
-              "moono_default_tweaks": player.get("tweaks") == MOONO_TWEAKS and (player.get("tweaks_effective") or {}).get("source") is not None
-                  and (player.get("tweaks_effective") or {}).get("source") != "command line",
-              "mod_verified_on_moono": bool(verified) and verified.group(1) == release}
+              # Moono's own defaults come from its option lines without --game-tweak; any other set from the command line.
+              "moono_tweaks_as_asked": player.get("tweaks") == tweaks and source is not None
+                  and (source != "command line" if tweaks == MOONO_TWEAKS else source == "command line"),
+              ("mod_refused_on_moono" if refused else "mod_verified_on_moono"): bool(verified) and verified.group(1) == release
+                  and verified.group(0).startswith("[Mixed Atmospheres] Not active" if refused else "[Mixed Atmospheres] Game build")}
     return checks, {"moono": {"release": release, "commit": player.get("commit"), "renderer": player.get("renderer"),
                               "tweaks": player.get("tweaks"), "tweaks_effective": player.get("tweaks_effective"),
-                              "verified_line": verified.group(0) if verified else None}}
+                              "mod_line": verified.group(0) if verified else None}}
+
+
+def moono_tweak_verify_checks(output: Path, qa_tools: Path) -> tuple[dict, dict]:
+    """Moono's own judgement of its verify modes (ONI_TWEAK_VERIFY=1): `scripts/qa-tools.py verify LOG` of the
+    Moono source clone prints each check's last summary as "ok NAME: ..." or "FAIL ..." and exits 1 on any
+    mismatch or incident. Silence is no pass: at least one check must have reported."""
+    if not qa_tools.is_file():
+        raise Refused(f"Moono's qa-tools.py is not at {qa_tools}: the Moono source clone (local/moono/src) judges its verify modes")
+    judged = subprocess.run([sys.executable, "-I", str(qa_tools), "verify", str(output / "Player.log")], capture_output=True, text=True, timeout=600)
+    lines = judged.stdout.splitlines()
+    reported = [line for line in lines if line.startswith("ok ")]
+    return ({"moono_verify_no_difference": judged.returncode == 0 and not any(line.startswith("FAIL") for line in lines),
+             "moono_verify_reported": bool(reported)},
+            {"moono_verify": {"returncode": judged.returncode, "lines": lines[:60], "stderr": judged.stderr[-2000:]}})
+
+
+def refused_guard_checks(rc: int, output: Path, save: Path, save_sha: str, altered: Path, altered_sha: str, build: int) -> tuple[dict, dict]:
+    """The refused mod's load guard on Moono: the run's own copy of a game file differs (oni_headless --altered-game-file)."""
+    result = read_json(output / "result.json")
+    log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").is_file() else ""
+    record = result.get("altered_game_file") or {}
+    release = (result.get("moono_player") or {}).get("release") or ""
+    checks = {"harness_pass": rc == 0, "refused_before_loading": result.get("status") == "passed-resume-refused",
+              "run_game_file_altered": record.get("path") == MOONO_ALTERED_FILE and record.get("original_sha256") == altered_sha
+                  and record.get("altered_sha256") not in (None, altered_sha),
+              "licensed_file_unchanged": sha256(altered) == altered_sha,
+              "mod_off_game_file_changed": f"(the game's code differs from the supported build); nothing is patched." in log
+                  and "changed game file " + Path(MOONO_ALTERED_FILE).name in log,
+              "guard_installed": "Only the verified save-load guard is installed." in log,
+              "refusal_names_cause_on_moono": f"which is not active because the game's code differs from the supported build {build} on Moono {release}, so it was not loaded" in log,
+              "input_save_unchanged": sha256(save) == save_sha}
+    return checks, {"classification": result.get("status"), "altered_game_file": record, "input_save": {"path": str(save), "sha256": save_sha}}
+
+
+def cross_save_checks(rc: int, output: Path, source_run: Path, save: Path, save_sha: str) -> tuple[dict, dict]:
+    """Unity's player loads and runs a colony that Moono saved with its default tweaks."""
+    result, source = read_json(output / "result.json"), read_json(source_run / "result.json")
+    owner = read_json(output / LINUX_PROFILE / VALIDATION / "colony-owner.json")
+    checks = {"harness_pass": rc == 0, "loaded_and_ran": result.get("status") == "passed-colony-owner-load",
+              "ran_on_unity": result.get("player") == "unity",
+              "save_written_by_moono": source.get("player") == "moono" and (source.get("moono_player") or {}).get("tweaks") == MOONO_TWEAKS,
+              "owner_healthy": owner.get("State") == 1 and owner.get("Faulted") is False and owner.get("Error") == "",
+              "input_save_unchanged": sha256(save) == save_sha}
+    return checks, {"classification": result.get("status"), "input_save": {"path": str(save), "sha256": save_sha,
+                    "written_by": {"release": (source.get("moono_player") or {}).get("release"), "run": str(source_run)}}}
 
 
 def menu_other_mod_checks(rc: int, output: Path) -> tuple[dict, dict]:
@@ -1372,9 +1457,16 @@ class Suite:
         if step.platform == "windows":
             return self.windows(step, package, manifest, output, log)
         checks, details = self.linux(step, package, manifest, output, log)
-        if step.platform == "moono":
-            extra, facts = moono_checks(output)
+        if step.platform == "moono" and step.kind != "cross-save":
+            extra, facts = moono_checks(output, step.options.get("moono_tweaks", MOONO_TWEAKS), step.kind == "refused-guard")
             checks, details = {**checks, **extra}, {**details, **facts}
+        if step.options.get("tweak_verify"):
+            extra, facts = moono_tweak_verify_checks(output, SHARED / "local/moono/src/scripts/qa-tools.py")
+            checks, details = {**checks, **extra}, {**details, **facts}
+        if step.options.get("save_controls"):
+            control = (read_json(output / LINUX_PROFILE / VALIDATION / "colony-owner.json").get("SaveControl") or {})
+            checks["save_controls_completed"] = control.get("Completed") == step.options["save_controls"]
+            details["save_control"] = control
         return checks, details
 
     def game(self, command: list[str], log: Path, env: dict) -> int:
@@ -1403,6 +1495,22 @@ class Suite:
             env["MA_OTHER_MOD_REMOVES_PATCHES"] = "1"
             rc = self.game(resume_refused_command(package, output, self.infra, save, other_mod, step.platform), log, env)
             checks, details = resume_refused_checks(rc, output, save, save_sha)
+            return checks, {**common, "returncode": rc, **details}
+        if step.kind == "refused-guard":
+            save = linux_cycle_autosave(self.layout.runs / step.deps[0], self.revision)
+            save_sha = sha256(save)
+            altered = self.infra.linux_game / step.options["altered"]
+            altered_sha = sha256(altered)
+            rc = self.game(linux_command(step, package, output, self.infra, load=save), log, env)
+            build = mod_identity.installed_build(self.infra.linux_game, "linux-x64")
+            checks, details = refused_guard_checks(rc, output, save, save_sha, altered, altered_sha, build)
+            return checks, {**common, "returncode": rc, **details}
+        if step.kind == "cross-save":
+            source_run = self.layout.runs / step.deps[0]
+            save = linux_cycle_autosave(source_run, self.revision)
+            save_sha = sha256(save)
+            rc = self.game(linux_command(step, package, output, self.infra, load=save), log, env)
+            checks, details = cross_save_checks(rc, output, source_run, save, save_sha)
             return checks, {**common, "returncode": rc, **details}
         if step.kind == "menu-other-mod":
             rc = self.game(menu_other_mod_command(package, output, self.infra, other_mod_folder(step.options["mod"]), step.platform), log, env)
@@ -1855,6 +1963,8 @@ def describe(step: Step) -> dict:
     elif step.kind == "resume-refused":
         command = resume_refused_command(package, output, infra, Path("<runs>") / step.deps[0] / "auto_save/<autosave>",
                                          Path("<runs>") / (step.name + "-other-mod"), step.platform)
+    elif step.kind in ("refused-guard", "cross-save"):
+        command = linux_command(step, package, output, infra, load=Path("<runs>") / step.deps[0] / "auto_save/<autosave>")
     elif step.platform in ("linux", "moono"):
         command = linux_command(step, package, output, infra, load=Path("<runs>") / (step.name + "-input.sav"))
     else:

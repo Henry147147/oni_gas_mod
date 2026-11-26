@@ -976,6 +976,39 @@ def moono_log_facts(log: str) -> dict:
             "tweaks_effective": moono_effective_tweaks(log)}
 
 
+# --altered-game-file: the trailing bytes appended to the run's own copy of one game file.
+ALTERED_GAME_FILE_TAIL = b"MixedAtmospheres altered game file\0"
+
+
+def alter_game_file(game: Path, thin: Path, relative: str) -> dict:
+    """In the run's thin game folder (top-level links to the licensed installation), replaces the link
+    path to `relative` by real folders of links and the file itself by a copy with ALTERED_GAME_FILE_TAIL
+    appended. The installation is never written. A PE image ignores bytes after its last section, so the
+    game still loads it; its SHA-256 is no longer the build's (the mod's file check on Moono)."""
+    parts = Path(relative).parts
+    if not parts or Path(relative).is_absolute() or any(part in ("..", ".") for part in parts):
+        raise ValueError("--altered-game-file takes a path inside the game folder")
+    source = game / relative
+    if not source.is_file() or source.is_symlink():
+        raise ValueError(f"--altered-game-file: {source} is not a file of the game")
+    here, original = thin, game
+    for part in parts[:-1]:
+        here, original = here / part, original / part
+        if here.is_symlink():
+            here.unlink()
+            here.mkdir()
+            for entry in original.iterdir():
+                (here / entry.name).symlink_to(entry)
+        elif not here.is_dir():
+            raise ValueError(f"--altered-game-file: {original} is not a folder of the game")
+    target = here / parts[-1]
+    target.unlink()
+    data = source.read_bytes() + ALTERED_GAME_FILE_TAIL
+    target.write_bytes(data)
+    return {"path": relative, "original_sha256": digest(source), "altered_sha256": hashlib.sha256(data).hexdigest(),
+            "appended_bytes": len(ALTERED_GAME_FILE_TAIL)}
+
+
 def sandbox_command(home: Path, state: Path, output: Path, game: Path, thin: Path, keep_open: bool,
                     resolution: tuple[int, int] = (1280, 720), moono: Path | None = None,
                     moono_arguments: tuple[str, ...] | list[str] = ()) -> list[str]:
@@ -1377,6 +1410,7 @@ def playtest(args, state: Path, session: dict) -> int:
     if args.mode != "menu":
         write_json(mod / "colony-validation.json", colony_configuration(args, name, load_fixture, inspection_seconds))
     resume_fixture = None
+    altered_file = None
     if resume_save is not None:
         resume_fixture = output / "resume-colony.sav"
         shutil.copy2(resume_save, resume_fixture)
@@ -1391,6 +1425,8 @@ def playtest(args, state: Path, session: dict) -> int:
             (thin / file.name).chmod(0o755)
         else:
             (thin / file.name).symlink_to(file)
+    altered = getattr(args, "altered_game_file", None)
+    altered_file = alter_game_file(game, thin, altered) if isinstance(altered, str) else None
     # Standard Steamworks development launch identifier. Steam still checks
     # the running client's account/license; this is not an authentication bypass.
     (thin / "steam_appid.txt").write_text("457140\n")
@@ -1607,6 +1643,7 @@ def playtest(args, state: Path, session: dict) -> int:
                 "development_telemetry": telemetry, "development_telemetry_passed": telemetry_ok,
                 "load_save_fixture": {"path": str(load_fixture), "sha256": digest(load_fixture)} if load_fixture else None,
                 "resume_save_fixture": {"path": str(resume_fixture), "sha256": digest(resume_fixture)} if resume_fixture else None,
+                "altered_game_file": altered_file,
                 "resume_refused": RESUME_REFUSED_MARKER in log if resume_fixture else None,
                 "game_hashes": {p: digest(game / p) for p in (
                     "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll",
@@ -1682,6 +1719,10 @@ def main() -> int:
                       help="Also install and enable this built mod folder (mod.yaml, mod_info.yaml, DLLs) after the package; repeatable")
     play.add_argument("--extra-mod-first", type=Path, action="append", metavar="FOLDER",
                       help="Like --extra-mod, but the game loads this mod before the package; repeatable")
+    play.add_argument("--altered-game-file", metavar="RELATIVE_PATH",
+                      help="Test of the mod's file check: the run's own game folder holds a copy of this game file "
+                           "(e.g. OxygenNotIncluded_Data/Managed/Assembly-CSharp-firstpass.dll) with bytes appended; "
+                           "the installation is never written")
     play.add_argument("--resume-save", type=Path, metavar="SAVE",
                       help="menu mode only: the main menu resumes this colony save by itself (the game's AutoResumeSaveFile "
                            "preference); the run passes when the mod refuses the save before the game loads it, e.g. while "

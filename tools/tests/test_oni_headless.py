@@ -2338,6 +2338,30 @@ class MoonoTests(unittest.TestCase):
         self.assertEqual(runner.moono_log_facts(log), {"commit": "0123abcd", "renderer": "Vulkan", "tweaks_effective": None})
         self.assertEqual(runner.moono_log_facts("Renderer: llvmpipe\n"), {"commit": None, "renderer": None, "tweaks_effective": None})
 
+    def test_an_altered_game_file_is_a_copy_in_the_runs_own_game_folder(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            game, thin = root / "game", root / "thin"
+            managed = game / "OxygenNotIncluded_Data/Managed"
+            managed.mkdir(parents=True)
+            (managed / "Assembly-CSharp-firstpass.dll").write_bytes(b"MZ firstpass")
+            (managed / "Assembly-CSharp.dll").write_bytes(b"MZ game")
+            (game / "OxygenNotIncluded_Data/data.unity3d").write_bytes(b"data")
+            thin.mkdir()
+            for entry in game.iterdir():
+                (thin / entry.name).symlink_to(entry)
+            record = runner.alter_game_file(game, thin, "OxygenNotIncluded_Data/Managed/Assembly-CSharp-firstpass.dll")
+            copy = thin / "OxygenNotIncluded_Data/Managed/Assembly-CSharp-firstpass.dll"
+            self.assertFalse(copy.is_symlink())
+            self.assertEqual(copy.read_bytes(), b"MZ firstpass" + runner.ALTERED_GAME_FILE_TAIL)
+            self.assertEqual((managed / "Assembly-CSharp-firstpass.dll").read_bytes(), b"MZ firstpass")
+            self.assertTrue((thin / "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll").is_symlink())
+            self.assertTrue((thin / "OxygenNotIncluded_Data/data.unity3d").is_symlink())
+            self.assertNotEqual(record["original_sha256"], record["altered_sha256"])
+            for wrong in ("../outside.dll", "/etc/passwd", "OxygenNotIncluded_Data/Managed/absent.dll"):
+                with self.assertRaises(ValueError, msg=wrong):
+                    runner.alter_game_file(game, thin, wrong)
+
     def test_the_effective_tweak_sets_come_from_moonos_option_lines(self):
         defaults = ("[engine] option game tweaks on (default): fast-jobs, background-save\n"
                     "[engine] option game tweaks on (the settings file): fast-sublimation\n"

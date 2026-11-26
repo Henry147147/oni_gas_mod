@@ -77,7 +77,9 @@ class PlanTests(unittest.TestCase):
             linux = suite.plan(tier, ("linux",))
             moono = suite.plan(tier, ("moono",))
             games = [s for s in linux if s.kind not in ("build", "offline")]
-            twins = [s for s in moono if s.platform == "moono"]
+            only = {s.name for s in suite.moono_only()}
+            twins = [s for s in moono if s.platform == "moono" and s.name not in only]
+            self.assertEqual(only <= set(names(moono)), tier == "release")
             # The Linux build is shared; each twin is moono-<name> with the same kind and options.
             self.assertEqual([s.name for s in moono if s.platform != "moono"], ["linux-build"])
             expected = [s for s in games if s.kind not in suite.MOONO_EXCLUDED]
@@ -95,6 +97,23 @@ class PlanTests(unittest.TestCase):
         self.assertEqual(names(release)[:len(suite.plan("release"))], names(suite.plan("release")))
         self.assertNotIn("moono-resume-refused", names(release))
         self.assertIn("moono-ten-cycle", names(release))
+        # Moono's own release steps: each has its own kind, deps on the shared build or a Moono cycle, and a
+        # command that says what it tests.
+        only = {s.name: s for s in suite.moono_only()}
+        self.assertEqual(set(only), {"moono-refused-guard", "moono-cross-save", "moono-autosave-load", "moono-tweaks-none",
+                                     "moono-tweaks-all", "moono-tweak-verify"})
+        by = {s["name"]: s["command"] for s in suite.json.loads(suite.json.dumps([suite.describe(x) for x in release]))}
+        guard = by["moono-refused-guard"]
+        self.assertEqual(guard[guard.index("--altered-game-file") + 1], "OxygenNotIncluded_Data/Managed/Assembly-CSharp-firstpass.dll")
+        self.assertEqual(guard[guard.index("--resume-save") + 1], "<runs>/moono-one-cycle/auto_save/<autosave>")
+        cross = by["moono-cross-save"]
+        self.assertNotIn("--moono", cross); self.assertIn("--gpu-display", cross)
+        self.assertEqual(cross[cross.index("--load-save") + 1], "<runs>/moono-one-cycle/auto_save/<autosave>")
+        self.assertEqual(only["moono-autosave-load"].options["env"], {"MA_COLONY_SAVE_CONTROL": "autosave,save-pair-read"})
+        for name, tweaks in (("moono-tweaks-none", "none"), ("moono-tweaks-all", "all"), ("moono-tweak-verify", "default")):
+            self.assertEqual(by[name][by[name].index("--moono-tweaks") + 1], tweaks)
+        self.assertEqual(only["moono-tweak-verify"].options["env"], {"ONI_TWEAK_VERIFY": "1"})
+        self.assertEqual(len(suite.plan("release", ("moono",))), 1 + len(twins) + len(only))
         # The patch tier's two batches and the affected scenarios' batches get their twins; no second offline step.
         patch = suite.plan("patch", ("linux", "moono"), ("airflow",))
         self.assertEqual([s.name for s in patch if s.platform == "moono"], ["moono-b1", "moono-b2", "moono-b13"])
@@ -120,10 +139,48 @@ class PlanTests(unittest.TestCase):
         self.assertFalse(suite.moono_checks(output)[0]["mod_verified_on_moono"])
         result["moono_player"]["tweaks_effective"] = {"source": "command line", "on": [], "off": None}
         write(output / "result.json", result)
-        self.assertFalse(suite.moono_checks(output)[0]["moono_default_tweaks"])
+        self.assertFalse(suite.moono_checks(output)[0]["moono_tweaks_as_asked"])
         write(output / "result.json", {"player": "unity", "moono_player": None})
         checks, _ = suite.moono_checks(output)
         self.assertFalse(checks["ran_on_moono"] or checks["moono_release_recorded"])
+        # Another tweak set comes from the command line; a refused mod names the release in its "Not active" line.
+        result["moono_player"].update(tweaks="none", tweaks_effective={"source": "command line", "on": [], "off": None})
+        write(output / "result.json", result)
+        write(output / "Player.log", "[Mixed Atmospheres] Not active on game build 764025 on Moono v2026.11.26.02 (the game's code differs ...\n")
+        checks, _ = suite.moono_checks(output, "none", refused=True)
+        self.assertTrue(all(checks.values()), checks)
+        self.assertFalse(suite.moono_checks(output, "none")[0]["mod_verified_on_moono"])
+        self.assertFalse(suite.moono_checks(output)[0]["moono_tweaks_as_asked"])
+
+    def test_moonos_own_verify_judgement_needs_a_report_and_no_failure(self):
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        tool = write(root / "qa-tools.py", "import sys\ntext=open(sys.argv[2]).read()\n"
+                     "print('ok  fast-jobs: 0 wrong' if 'good' in text else 'FAIL fast-jobs: 2 wrong')\nsys.exit(0 if 'good' in text else 1)\n")
+        write(root / "run/Player.log", "good\n")
+        checks, details = suite.moono_tweak_verify_checks(root / "run", tool)
+        self.assertTrue(all(checks.values()), details)
+        write(root / "run/Player.log", "bad\n")
+        self.assertFalse(suite.moono_tweak_verify_checks(root / "run", tool)[0]["moono_verify_no_difference"])
+        with self.assertRaises(suite.Refused):
+            suite.moono_tweak_verify_checks(root / "run", root / "absent.py")
+
+    def test_the_refused_guard_on_moono_needs_the_changed_file_the_guard_and_the_cause(self):
+        temporary = tempfile.TemporaryDirectory(); self.addCleanup(temporary.cleanup)
+        root = Path(temporary.name)
+        save = write(root / "a.sav", "save"); licensed = write(root / "game/firstpass.dll", "dll")
+        output = root / "run"
+        write(output / "result.json", {"status": "passed-resume-refused", "moono_player": {"release": "v2026.11.26.02"},
+               "altered_game_file": {"path": suite.MOONO_ALTERED_FILE, "original_sha256": suite.sha256(licensed), "altered_sha256": "f" * 64}})
+        write(output / "Player.log", "[Mixed Atmospheres] Not active on game build 764025 on Moono v2026.11.26.02 (the game's code differs from the supported build); "
+              "nothing is patched. Details:\n  running on Moono v2026.11.26.02\n  changed game file Assembly-CSharp-firstpass.dll (SHA-256 ...)\n"
+              "[Mixed Atmospheres] Only the verified save-load guard is installed.\n"
+              "[Mixed Atmospheres] Colony save refused before loading: This colony uses Mixed Atmospheres, which is not active because the game's code "
+              "differs from the supported build 764025 on Moono v2026.11.26.02, so it was not loaded.\n")
+        checks, _ = suite.refused_guard_checks(0, output, save, suite.sha256(save), licensed, suite.sha256(licensed), 764025)
+        self.assertTrue(all(checks.values()), checks)
+        write(licensed, "changed")
+        self.assertFalse(suite.refused_guard_checks(0, output, save, suite.sha256(save), licensed, suite.sha256(save), 764025)[0]["licensed_file_unchanged"])
 
     def test_release_adds_the_remaining_scenarios_and_the_ten_cycle_run(self):
         quick, release = names(suite.plan("quick")), suite.plan("release")

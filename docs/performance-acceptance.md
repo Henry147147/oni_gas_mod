@@ -351,15 +351,45 @@ and `all`. `--moono PLAYER_DIR` overrides the default player
 from a worktree. A tier counts as passed (`tier_passed`) only when its steps on all
 three platforms passed. Step counts in 1.15.0:
 
-| Tier | linux | windows | moono | all |
-| --- | ---: | ---: | ---: | ---: |
-| patch | 4 (offline, build, b1, b13) | 2 | 3 (build, b1, b13) | 8 |
-| quick | 26 | 20 | 26 (build and 25 twins) | 71 |
-| release | 79 | 20 | 78 (build and 77 twins) | 176 |
+| Tier | linux | windows | moono | both | all |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| patch | 4 (offline, build, b1, b13) | 2 | 3 (build, b1, b13) | 6 | 8 |
+| quick | 26 | 20 | 26 (build and 25 twins) | 46 | 71 |
+| release | 80 | 20 | 85 (build, 78 twins, 6 Moono-only) | 100 | 184 |
+
+The release tier adds six steps that only Moono has:
+
+- **`moono-refused-guard`.** A refused mod's load guard, with a cause CoreCLR
+  sees. `tools/oni_headless.py --altered-game-file
+  OxygenNotIncluded_Data/Managed/Assembly-CSharp-firstpass.dll` makes the run's
+  own game folder a tree of links to the installation, with a copy of that one
+  file plus 35 bytes; the installation is not written. The step requires:
+  - the mod is off with "changed game file Assembly-CSharp-firstpass.dll";
+  - the guard is installed;
+  - the autosave that `moono-one-cycle` wrote, resumed from the menu, is
+    refused with the cause and "on Moono <release>";
+  - the licensed file and the input save are unchanged.
+- **`moono-cross-save`.** Unity's player loads `moono-one-cycle`'s autosave
+  (Moono, default tweaks) and runs it 300 ticks. The reverse needs no step of
+  its own: the Moono cycle twins load the frozen save Unity's player made.
+- **`moono-autosave-load`.** A new Spaced Out! colony with
+  `MA_COLONY_SAVE_CONTROL=autosave,save-pair-read`: the game's autosave, then
+  two saves back to back and at once the check a load from the menu makes on
+  each. Each save must read as a Mixed Atmospheres colony and be accepted,
+  also while Moono's background write is still on its way. Both controls must
+  complete; `PendingAtRead` counts the saves still being written when they
+  were read.
+- **`moono-tweaks-none` and `moono-tweaks-all`.** The same short colony (600
+  ticks at speed 3) without Moono's tweaks and with all of them. Their tweak
+  sets come from the command line.
+- **`moono-tweak-verify`.** The same colony with Moono's defaults and
+  `ONI_TWEAK_VERIFY=1`. Moono's own `scripts/qa-tools.py verify` (from the
+  source clone in `local/moono/src`) judges the log: it must exit 0, print no
+  `FAIL` line and report at least one check (`ok …`).
 
 Steps without a twin (`MOONO_EXCLUDED`):
 
-- **`linux-resume-refused`.** Its refusal comes from the patch mark that the stand-in
+- **`linux-resume-refused`** (`moono-refused-guard` tests the guard on Moono instead). Its refusal comes from the patch mark that the stand-in
   mod's removed Harmony patches leave on game methods. Mono keeps NoInlining in its
   own method record, where reflection reads it. Under Moono's CoreCLR the flag is not
   part of what reflection reports (inferred, not measured), so the build would
