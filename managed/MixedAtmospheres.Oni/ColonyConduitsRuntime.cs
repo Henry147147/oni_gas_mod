@@ -86,7 +86,7 @@ namespace MixedAtmospheres.Oni
             var cells=ColonyConduits.Capture();var boundary=ColonyPipePorts.ValidateSealedBoundary();
             var runtime=new PipeRuntimeImage();
             ColonyPipePorts.Capture(runtime);ColonyPipePumps.Capture(runtime);ColonyPipeVents.Capture(runtime);ColonyPipeTeardown.Capture(runtime);
-            ColonyMachinePorts.Capture(runtime);ColonyPipeContactHeat.Capture(runtime);ColonyPipeBiology.Capture(runtime);runtime.PhaseEvents=ColonyConduits.PhaseEvents;
+            ColonyMachinePorts.Capture(runtime);ColonyPipeContactHeat.Capture(runtime);ColonyPipeBiology.Capture(runtime,cells.Cells);runtime.PhaseEvents=ColonyConduits.PhaseEvents;
             if(NativeScheduleControl)
             {runtime.OwnedStorage=ColonyOwnedStorage.Capture();runtime.NativeSchedule=ColonyConduitsSchedule.Capture();}
             var image=new ColonyConduitCheckpoint(ColonyConduits.Geometry,ColonyConduits.CatalogueIdentity(),cells.Cells,cells.Initial,cells.Supplied,cells.Removed,

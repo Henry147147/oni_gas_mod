@@ -182,15 +182,53 @@ namespace MixedAtmospheres.Oni
             var cells=new List<PipeCellImage>();
             foreach(var flow in Flows)
                 for(var i=flow.Value.Next(0);i>=0;i=flow.Value.Next(i+1))
-                    if(flow.Value.Cells[i] is Cell cell&&flow.Key.HasConduit(i))
+                {
+                    var cell=flow.Value.Cells[i]!;
+                    if(flow.Key.HasConduit(i))
                     {
                         SyncNative(flow.Key,i);Publish(flow.Key,i);
-                        if(cell.Inventory.Count>0)cells.Add(new PipeCellImage(flow.Key.conduitType==ConduitType.Gas?(byte)1:(byte)2,i,cell.Inventory));
                     }
-                    else if(flow.Value.Cells[i] is Cell orphan&&orphan.Inventory.Count>0)
-                        throw new InvalidOperationException("An owned pipe inventory has no native conduit at a save point.");
+                    else if(cell.Inventory.Count>0)
+                    {
+                        if(PipeBuilding(flow.Key,i)==null)
+                        {
+                            // The owner checkpoint is already captured. Hold the fluid in
+                            // the pipe image and dispatch it on the next simulation tick.
+                            ColonyPipeTeardown.HoldSpill(HoldForTeardown(flow.Key,i),i,dispatch:false);
+                            continue;
+                        }
+                        SyncDetached(flow.Key,i);
+                        Publish(flow.Key,i);
+                    }
+                    if(cell.Inventory.Count>0)cells.Add(new PipeCellImage(flow.Key.conduitType==ConduitType.Gas?(byte)1:(byte)2,i,cell.Inventory));
+                }
             var diseases=new List<PipePart>();foreach(var item in DiseaseExchange)if(item.Value.Sign!=0)diseases.Add(new PipePart(item.Key,item.Value));
             return(cells.ToArray(),initial,supplied,removed,heat,diseases.ToArray());
+        }
+        internal static Conduit? PipeBuilding(ConduitFlow flow,int cell)
+        {
+            var layer=flow.conduitType==ConduitType.Gas?ObjectLayer.GasConduit:ObjectLayer.LiquidConduit;
+            var building=Grid.Objects[cell,(int)layer];
+            return building!=null?building.GetComponent<Conduit>():null;
+        }
+        // ONI writes only its current network rows. Its ordinary loader can
+        // restore packets by grid cell even before a conduit joins a network.
+        internal static void SerializeDetached(ConduitFlow flow)
+        {
+            if(!Active||!Flows.TryGetValue(flow,out var state))return;
+            List<(int Cell,ConduitFlow.SerializedContents Contents)>? extra=null;
+            for(var i=state.Next(0);i>=0;i=state.Next(i+1))
+                if(state.Cells[i]!.Inventory.Count>0&&!flow.HasConduit(i)&&PipeBuilding(flow,i)!=null)
+                    (extra??=new List<(int,ConduitFlow.SerializedContents)>()).Add((i,new ConduitFlow.SerializedContents(ReadGrid(flow,i))));
+            if(extra==null)return;
+            var count=flow.serializedIdx?.Length??0;
+            Array.Resize(ref flow.serializedIdx,count+extra.Count);
+            Array.Resize(ref flow.versionedSerializedContents,count+extra.Count);
+            foreach(var entry in extra)
+            {
+                flow.serializedIdx[count]=entry.Cell;
+                flow.versionedSerializedContents[count++]=entry.Contents;
+            }
         }
         // Loading: install the saved cells and require each native contents
         // ONI restored to equal the saved inventory's projection bit for bit.
@@ -307,6 +345,23 @@ namespace MixedAtmospheres.Oni
             if(!Owns(flow,cell)||!flow.HasConduit(cell))throw new InvalidOperationException("Port source is not an owned pipe.");
             SyncNative(flow,cell);var source=Ensure(flow,cell);var split=source.Inventory.Split(maximum,MaterialLookup,species);
             source.Inventory=split.Remaining;if(split.Parcel.Count>0)Publish(flow,cell,MassPublication.Removed);return split.Parcel;
+        }
+        internal static ulong HoldForTeardown(ConduitFlow flow,int index)
+        {
+            if(flow.HasConduit(index))return ColonyPipePorts.HoldForPort(flow,index,double.MaxValue);
+            var cell=Flows[flow].Cells[index];
+            if(cell==null||cell.Inventory.Count==0)return 0;
+            SyncDetached(flow,index);
+            var id=ColonyPipePorts.HoldInventory(flow.conduitType==ConduitType.Gas?(byte)1:(byte)2,index,cell.Inventory);
+            cell.Inventory=PipeInventory.Empty;
+            Publish(flow,index);
+            return id;
+        }
+        private static void SyncDetached(ConduitFlow flow,int index)
+        {
+            // Removing the native slot can clear its scalar packet. Only a
+            // surviving packet can report new heat and germ counts.
+            if(ReadGrid(flow,index).mass>0)SyncNative(flow,index);
         }
         internal static PreparedPortChange PrepareTakeForPort(ConduitFlow flow,int cell,int? species,double maximum,out PipeInventory parcel)
         {
@@ -810,6 +865,11 @@ namespace MixedAtmospheres.Oni
     internal static class ColonyMixedPipeDumpPatch
     {
         private static bool Prefix(ConduitFlow __instance,int __0)=>ColonyConduits.CanDump(__instance,__0);
+    }
+    [HarmonyPatch(typeof(ConduitFlow),"OnSerializing")]
+    internal static class ColonyMixedPipeSerializationPatch
+    {
+        private static void Postfix(ConduitFlow __instance)=>ColonyConduits.SerializeDetached(__instance);
     }
     [HarmonyPatch]
     internal static class ColonyMixedPipeThermalPatch

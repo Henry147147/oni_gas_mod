@@ -147,6 +147,7 @@ LINUX_EXTRA_BATCHES = (
     # Rephysicalized's own oxygen intake, crop and polymerizer intake on the owner's mixtures, with that mod
     # loaded first (docs/colony-owner.md#other-mods-rephysicalized; OTHER_MOD_SCENARIOS).
     ("rephysicalized", 0, (), {}),
+    ("mixed-pipe-disconnected-save", 0, ("--save-colony",), {}),
 )
 # Third-party mods some scenarios load first. They never enter git: they lie in local/other-mods/src,
 # where tools/workshop.py fetch-mod puts a Workshop item.

@@ -41,10 +41,17 @@ namespace MixedAtmospheres.Oni
         internal readonly ushort CapturedElement;
         internal readonly float CapturedMass,Residue;
         internal readonly PipeGrowthRule Growth;
+        // A disconnected pipe has no allocated native culture row. Its exact
+        // mixture and any owned clocks still have a cell in the pipe image.
+        internal bool IsDetached=>CapturedElement==ushort.MaxValue;
+        internal static PipeNativeCulture Detached(byte phase,int cell)=>
+            new PipeNativeCulture(phase,cell,ushort.MaxValue,0,byte.MaxValue,0,0,default);
         internal PipeNativeCulture(byte phase,int cell,ushort element,float mass,byte disease,int count,float residue,PipeGrowthRule growth)
         {
             if(phase!=1&&phase!=2||cell<0||mass<0||float.IsNaN(mass)||float.IsInfinity(mass)||count<0||disease==byte.MaxValue&&count!=0||
-                float.IsNaN(residue)||float.IsInfinity(residue)||Math.Abs(residue)>=1)
+                float.IsNaN(residue)||float.IsInfinity(residue)||Math.Abs(residue)>=1||
+                element==ushort.MaxValue&&(BitConverter.SingleToInt32Bits(mass)!=0||disease!=byte.MaxValue||
+                    BitConverter.SingleToInt32Bits(residue)!=0||!growth.SameBits(default)))
                 throw new InvalidDataException("Invalid saved native pipe culture.");
             Phase=phase;Cell=cell;CapturedElement=element;CapturedMass=mass;Disease=disease;Count=count;Residue=residue;Growth=growth;
         }

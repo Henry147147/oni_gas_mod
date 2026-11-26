@@ -20,7 +20,7 @@ namespace MixedAtmospheres.Oni
         internal static object Report()=>new{Saved=savedContexts,Bound=boundContexts,Pending=Pending.Count,AllocationMassCorrections=massCorrections,CacheCorrections=cacheCorrections,
             CapturedContexts=capturedContexts,CaptureMissingPrefabs=captureMissingPrefabs,RestoreMissingPrefabs=restoreMissingPrefabs,CoverageVerified=coverageVerified};
         internal static void Reset(){Pending.Clear();RestoredContexts.Clear();savedContexts=boundContexts=massCorrections=cacheCorrections=capturedContexts=captureMissingPrefabs=restoreMissingPrefabs=0;restored=coverageVerified=false;}
-        internal static List<PipeNativeCulture> CaptureAll()
+        internal static List<PipeNativeCulture> CaptureAll(IEnumerable<PipeCellImage> cells)
         {
             RequireReady();
             var captured=new Dictionary<(ConduitFlow,int),PipeNativeCulture>(Pending);
@@ -28,6 +28,11 @@ namespace MixedAtmospheres.Oni
                 if(!captured.ContainsKey(sample))
                     captured.Add(sample,Capture(sample.Flow.conduitType==ConduitType.Gas?(byte)1:(byte)2,sample.Cell,
                         sample.Flow.soaInfo.GetDiseaseData(sample.Flow.GetConduit(sample.Cell).idx)));
+            foreach(var cell in cells)
+            {
+                var flow=cell.Phase==1?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
+                if(!flow.HasConduit(cell.Cell))captured.Add((flow,cell.Cell),PipeNativeCulture.Detached(cell.Phase,cell.Cell));
+            }
             capturedContexts=captured.Count;captureMissingPrefabs=0;
             foreach(var pair in captured)if(!PrefabExists(pair.Key.Item1,pair.Key.Item2))++captureMissingPrefabs;
             return new List<PipeNativeCulture>(captured.Values);
@@ -38,7 +43,7 @@ namespace MixedAtmospheres.Oni
             var prepared=new Dictionary<(ConduitFlow,int),PipeNativeCulture>();
             foreach(var context in contexts)
             {
-                if(context.CapturedElement>=ElementLoader.elements.Count||context.Disease!=byte.MaxValue&&context.Disease>=Db.Get().Diseases.Count)
+                if(!context.IsDetached&&context.CapturedElement>=ElementLoader.elements.Count||context.Disease!=byte.MaxValue&&context.Disease>=Db.Get().Diseases.Count)
                     throw new InvalidDataException("A saved pipe culture refers to an unknown native element or disease.");
                 var flow=context.Phase==1?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
                 if(prepared.ContainsKey((flow,context.Cell)))throw new InvalidDataException("Duplicate saved native pipe culture.");
@@ -47,14 +52,15 @@ namespace MixedAtmospheres.Oni
             // GameStarted can precede conduit prefab/network registration.
             // Queue the exact saved context now; require complete native and
             // prefab coverage at the verified first-positive-time barrier.
-            foreach(var pair in prepared){Pending.Add(pair.Key,pair.Value);RestoredContexts.Add(pair.Key,pair.Value);if(!PrefabExists(pair.Key.Item1,pair.Key.Item2))++restoreMissingPrefabs;}
+            foreach(var pair in prepared)
+            {
+                if(!pair.Value.IsDetached)Pending.Add(pair.Key,pair.Value);
+                RestoredContexts.Add(pair.Key,pair.Value);
+                if(!PrefabExists(pair.Key.Item1,pair.Key.Item2))++restoreMissingPrefabs;
+            }
             savedContexts=prepared.Count;restored=true;
         }
-        private static bool PrefabExists(ConduitFlow flow,int cell)
-        {
-            var layer=flow.conduitType==ConduitType.Gas?ObjectLayer.GasConduit:ObjectLayer.LiquidConduit;
-            var pipe=Grid.Objects[cell,(int)layer];return pipe!=null&&pipe.GetComponent<Conduit>()!=null;
-        }
+        private static bool PrefabExists(ConduitFlow flow,int cell)=>ColonyConduits.PipeBuilding(flow,cell)!=null;
         internal static void RequireReady()
         {
             if(!NeedsReadyBarrier)return;
@@ -63,8 +69,19 @@ namespace MixedAtmospheres.Oni
             foreach(var pair in RestoredContexts)
             {
                 var flow=pair.Key.Item1;var cell=pair.Key.Item2;
-                if(!PrefabExists(flow,cell)||!flow.HasConduit(cell))
-                    throw new InvalidDataException($"Saved native pipe culture {cell} has no registered restored pipe at the first positive-time boundary.");
+                var pipe=ColonyConduits.PipeBuilding(flow,cell);
+                if(pipe==null)
+                    throw new InvalidDataException($"Saved native pipe culture {cell} has no restored pipe building.");
+                if(pair.Value.IsDetached)continue; // Reconnection allocates a new native row.
+                if(!flow.HasConduit(cell))
+                {
+                    if(!pipe.IsDisconnected())
+                        throw new InvalidDataException($"Saved native pipe culture {cell} has no registered restored pipe at the first positive-time boundary.");
+                    // A save made just before ONI rebuilt the network can
+                    // still contain the allocated row of a broken building.
+                    Pending.Remove(pair.Key);
+                    continue;
+                }
                 var current=Capture(pair.Value.Phase,cell,flow.soaInfo.GetDiseaseData(flow.GetConduit(cell).idx));
                 if(!pair.Value.SameBits(current))throw new InvalidDataException($"Native pipe culture {cell} changed after topology settlement.");
             }
@@ -75,12 +92,12 @@ namespace MixedAtmospheres.Oni
             foreach(var phase in new byte[]{1,2})
             {
                 var flow=phase==1?Game.Instance.gasConduitFlow:Game.Instance.liquidConduitFlow;
-                var layer=phase==1?ObjectLayer.GasConduit:ObjectLayer.LiquidConduit;
                 for(var y=geometry.Y;y<geometry.Y+geometry.Height;++y)
                     for(var x=geometry.X;x<geometry.X+geometry.Width;++x)
                     {
-                        var cell=checked((int)(y*geometry.GridWidth+x));var pipe=Grid.Objects[cell,(int)layer];
-                        if(pipe!=null&&pipe.GetComponent<Conduit>()!=null&&!RestoredContexts.ContainsKey((flow,cell)))
+                        var cell=checked((int)(y*geometry.GridWidth+x));var conduit=ColonyConduits.PipeBuilding(flow,cell);
+                        if(conduit!=null&&
+                            (flow.HasConduit(cell)||!conduit.IsDisconnected())&&!RestoredContexts.ContainsKey((flow,cell)))
                             throw new InvalidDataException($"Restored pipe {cell} has no saved native culture context.");
                     }
             }
