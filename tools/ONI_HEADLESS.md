@@ -252,6 +252,66 @@ the GPU; under the colony owner Unity runs at about 67 instead of 3 frames per
 second, and a frame's interval exceeds its solver time by about 40 ms (frames
 10-60).
 
+<a id="moono"></a>
+## Moono
+
+`run --moono PLAYER_DIR` runs the game through [Moono](https://github.com/tigin-backwards/oni-moono)
+(Klei's DLLs on .NET with its own engine) instead of Unity's player, for every
+mode. The release player for game build 764025 is unpacked at
+`local/moono/release/linux/oni-moono/player` (third-party, never in git).
+
+- **Launch.** In the same sandbox, in Steam's form:
+  `PLAYER_DIR/OniMoono OPTIONS -- <thin copy>/OxygenNotIncluded <the usual arguments>`.
+  The game folder is the thin copy's. Moono reads `-screen-width`, `-screen-height`,
+  `-screen-fullscreen` and `-logFile`. It reads Unity's `-force-glcore` as
+  `--renderer opengl` (`UnityArguments.cs`), so a Moono run leaves that argument
+  out. The player folder is bound read-only after the run's home.
+- **A monitor.** Moono's window (GLFW) needs a connected monitor. The NVIDIA
+  headless X server `:99` reports none (`xrandr`: every output disconnected),
+  so Moono crashes there before the game starts. With `--moono` the harness
+  checks the display's RandR outputs and refuses such a display before
+  launch. Use the Xvfb desktop (no `--gpu-display`) or `--moono-headless`.
+- **`--moono-headless`** passes Moono's `--headless`: no window, no graphics
+  device and no X display for the game. Screen reports the game's default
+  resolution, frames are paced at `Application.targetFrameRate` or 60 Hz, and
+  the player runs until the game quits, as our validation quits it. Nothing is
+  drawn, so in-game captures and `desktop-final.png` are skipped; the modes
+  that judge pictures (`presentation`, `tile-hover`) have nothing to judge.
+  It excludes `--gpu-display`, `--private-display` and `--moono-renderer`.
+  `moono_player.headless` records it.
+- **Pinned options**, the test default of Moono's own `scripts/run.sh`:
+  `--game-tweak none --splash none --log-paths full`, plus `--crash-dialog off`
+  and `--no-tweaks-menu`, which keeps the main menu as the original's.
+  - `--moono-tweaks none|all|exact|NAME,...` sets the tweaks (repeated `--game-tweak`).
+  - `--moono-renderer auto|vulkan|opengl` sets the renderer. By default Moono
+    chooses, Vulkan first on a discrete GPU.
+  - `--moono-tweaks-menu` keeps its menu button.
+- **Network.** Moono's only request of its own is its update check against
+  GitHub. It has no launch option. The harness writes `{"updateCheck": false}`
+  to the run's `<persistentDataPath>/oni-moono/settings.json` and sets
+  `ONI_UPDATE_RELEASES_URL=none`, which also returns before any request.
+  Moono's Workshop self-update belongs to its Workshop item, which a player
+  folder never reads. The game's own web requests are the original's.
+- **Environment.** `ONI_MOONO_CRASH_DIALOG=off` and `ONI_HOST_NO_DIALOG=1` (no
+  window to wait on).
+- **Where its files go.** Its settings (`<persistentDataPath>/oni-moono/settings.json`),
+  caches and crash records go to the run's home and output, as the game's
+  do. The Steam client is the same private, offline one. Moono uses the
+  game's `libsteam_api`, never its offline stub.
+- **The log.** Player.log is `-logFile`'s, as with Unity's player. Moono's
+  own lines start with `[engine]`; its first is
+  `[engine] Moono starting: commit=…`, and the renderer it chose is
+  `[engine] renderer: NAME (…)`.
+- **What result.json records.** `player` (`moono` or `unity`), `moono`, and
+  `moono_player`: its folder, its release (OniMoono.dll's `MoonoRelease`),
+  the commit and renderer from the log, the tweak set, the renderer asked
+  for and the options passed. Classification strings are the same for both
+  players, so a result is read by these fields, never by its status.
+- **The mod.** It is staged in `mods/Dev` as with Unity's player. Moono's
+  mod sweeps install mods as local mods because the game itself applies
+  developer checks to Dev-folder mods. Those are the game's, the same under
+  both players.
+
 ## Floor arenas
 
 `run --mode colony-vanilla --scenario spaced-out-reactor-meltdown --dlc-mask 1` runs that one system scenario under

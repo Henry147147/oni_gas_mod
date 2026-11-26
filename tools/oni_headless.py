@@ -841,8 +841,112 @@ def root_binds(mountinfo: str | None = None, root: Path = Path("/")) -> list[str
     return bind(root)
 
 
+MOONO_TWEAK_SETS = ("none", "all", "exact")
+MOONO_RENDERERS = ("auto", "vulkan", "opengl")
+# Moono's own variables a test run pins (local/moono docs: DEVELOPMENT.md, INSTALL-MODES.md): no
+# update check (it would ask GitHub), no crash window and no message box or desktop dialog to wait on.
+MOONO_ENVIRONMENT = {"ONI_UPDATE_RELEASES_URL": "none", "ONI_MOONO_CRASH_DIALOG": "off", "ONI_HOST_NO_DIALOG": "1"}
+MOONO_STARTING = re.compile(r"^\[engine\] Moono starting: commit=(\S+)", re.M)
+MOONO_RENDERER = re.compile(r"^\[engine\] renderer: ([^(;]+?) \(", re.M)
+
+
+def moono_tweak_arguments(tweaks: str) -> list[str]:
+    """--moono-tweaks none|all|exact|NAME,...: Moono's --game-tweak, repeated (any of them sets the whole set)."""
+    names = [name.strip() for name in tweaks.split(",") if name.strip()]
+    if not names or (len(names) > 1 and any(name in MOONO_TWEAK_SETS for name in names)) or \
+            any(not re.fullmatch(r"-?[A-Za-z0-9][A-Za-z0-9_.-]*", name) for name in names):
+        raise ValueError("--moono-tweaks takes none, all, exact or a comma-separated list of tweak names")
+    return [argument for name in names for argument in ("--game-tweak", name)]
+
+
+def moono_options(tweaks: str = "none", renderer: str | None = None, tweaks_menu: bool = False, headless: bool = False) -> list[str]:
+    """The player options a test pins: its scripts' test default (no tweaks, no splash, full log paths),
+    no crash window, and no Moono Tweaks button on the main menu unless asked, so the menu is the original's.
+
+    `headless`: Moono's --headless (Player.cs): no window and no graphics device; Screen reports the
+    project's default resolution; frames are paced at Application.targetFrameRate or 60 Hz; the
+    player still runs until the game quits (no --frames limit); nothing is drawn, so in-game
+    captures and the desktop screenshots show nothing of the game.
+    """
+    options = [*moono_tweak_arguments(tweaks), "--splash", "none", "--log-paths", "full", "--crash-dialog", "off"]
+    if not tweaks_menu:
+        options.append("--no-tweaks-menu")
+    if headless:
+        if renderer is not None:
+            raise ValueError("--moono-headless opens no renderer; leave out --moono-renderer")
+        options.append("--headless")
+    if renderer is not None:
+        if renderer not in MOONO_RENDERERS:
+            raise ValueError("--moono-renderer takes " + ", ".join(MOONO_RENDERERS))
+        options += ["--renderer", renderer]
+    return options
+
+
+# Moono's settings file (PlayerSettings.PathIn: <persistentDataPath>/oni-moono/settings.json). The update
+# check has no launch option; its setting turns it off before it starts (ONI_UPDATE_RELEASES_URL=none also
+# returns before any request, UpdateCheck.Start).
+MOONO_SETTINGS = {"updateCheck": False}
+
+
+def write_moono_settings(profile: Path) -> Path:
+    path = profile / "oni-moono/settings.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(MOONO_SETTINGS) + "\n", encoding="utf-8")
+    return path
+
+
+def connected_outputs(display: str, env: dict) -> list[str] | None:
+    """The RandR outputs of an X display that are connected, or None when xrandr cannot tell."""
+    try:
+        query = subprocess.run(["xrandr", "--display", display, "--query"], env=env, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if query.returncode != 0:
+        return None
+    return [line.split()[0] for line in query.stdout.splitlines() if re.match(r"^\S+ connected\b", line)]
+
+
+def moono_display_error(display: str, outputs: list[str] | None) -> str | None:
+    """Moono (GLFW) needs a monitor: a display whose RandR has no connected output makes it crash before
+    the game starts (GlfwPlatform asks for the primary monitor's video mode)."""
+    if outputs:
+        return None
+    why = "xrandr could not query it" if outputs is None else "RandR reports no connected output"
+    return (f"Moono needs a monitor on its X display, and {display} has none ({why}). The harness's Xvfb desktop "
+            "(no --gpu-display) or --moono-headless works.")
+
+
+def moono_release(player: Path) -> str | None:
+    """The release a Moono player folder is (OniMoono.dll's MoonoRelease assembly metadata), or None."""
+    try:
+        data = (player / "OniMoono.dll").read_bytes()
+    except OSError:
+        return None
+    match = re.search(rb"\x0cMoonoRelease([\x01-\x7f])", data)
+    if not match:
+        return None
+    value = data[match.end():match.end() + match.group(1)[0]]
+    return value.decode("ascii", "replace") if re.fullmatch(rb"[ -~]+", value) else None
+
+
+def verify_moono_player(player: Path) -> Path:
+    player = player.resolve()
+    if not (player / "OniMoono").is_file() or not (player / "OniMoono.dll").is_file():
+        raise ValueError(f"{player} is no Moono player folder (OniMoono and OniMoono.dll)")
+    if not os.access(player / "OniMoono", os.X_OK):
+        raise ValueError(f"{player / 'OniMoono'} is not executable")
+    return player
+
+
+def moono_log_facts(log: str) -> dict:
+    """What a Moono run's Player.log says of the player: its commit (first line) and the renderer it chose."""
+    started, renderer = MOONO_STARTING.search(log), MOONO_RENDERER.search(log)
+    return {"commit": started.group(1) if started else None, "renderer": renderer.group(1).strip() if renderer else None}
+
+
 def sandbox_command(home: Path, state: Path, output: Path, game: Path, thin: Path, keep_open: bool,
-                    resolution: tuple[int, int] = (1280, 720)) -> list[str]:
+                    resolution: tuple[int, int] = (1280, 720), moono: Path | None = None,
+                    moono_arguments: tuple[str, ...] | list[str] = ()) -> list[str]:
     """Return the bwrap command for one game run.
 
     The root and the private tool/Steam tree are read-only; a fresh home, XDG
@@ -851,6 +955,12 @@ def sandbox_command(home: Path, state: Path, output: Path, game: Path, thin: Pat
     and steamclient.so reads its /proc entries. /dev (Steam's /dev/shm IPC
     objects) and /tmp are shared. Steam's own initialization and ownership
     checks are unchanged.
+
+    `moono`: a Moono player folder (bound read-only) that runs the game
+    instead of Unity's player, in Steam's form `OniMoono OPTIONS -- GAME
+    ARGUMENTS`: the game folder is the thin copy's, the arguments after it
+    are the game's. Its writes (settings, caches, crash records) go to the
+    run's home and output: XDG roots and -logFile are the same.
     """
     arguments = ["bwrap", *root_binds(), "--bind", str(home), str(Path.home()),
                  "--ro-bind", str(state), str(state), "--bind", str(output), str(output),
@@ -862,8 +972,19 @@ def sandbox_command(home: Path, state: Path, output: Path, game: Path, thin: Pat
                  "--setenv", "XDG_DATA_HOME", str(home / ".local/share"),
                  "--setenv", "XDG_CACHE_HOME", str(home / ".cache"),
                  "--setenv", "XDG_RUNTIME_DIR", str(output / "runtime"),
-                 "--unsetenv", "DBUS_SESSION_BUS_ADDRESS",
-                 str(thin / "OxygenNotIncluded"), "-force-glcore", "-screen-fullscreen", "0",
+                 "--unsetenv", "DBUS_SESSION_BUS_ADDRESS"]
+    if moono is not None:
+        arguments[arguments.index("--chdir"):arguments.index("--chdir")] = ["--ro-bind", str(moono), str(moono)]
+        for key, value in MOONO_ENVIRONMENT.items():
+            arguments += ["--setenv", key, value]
+        if "--headless" in moono_arguments:
+            # No window: the game gets no X display at all.
+            arguments += ["--unsetenv", "DISPLAY", "--unsetenv", "XAUTHORITY", "--unsetenv", "WAYLAND_DISPLAY"]
+        arguments += [str(moono / "OniMoono"), *moono_arguments, "--"]
+    arguments += [str(thin / "OxygenNotIncluded"),
+                  # Unity's renderer choice. Moono reads -force-glcore as --renderer opengl (UnityArguments.cs),
+                  # so a Moono run leaves it out and --moono-renderer alone decides.
+                  *(["-force-glcore"] if moono is None else []), "-screen-fullscreen", "0",
                  "-screen-width", str(resolution[0]), "-screen-height", str(resolution[1]), "-logFile", str(output / "Player.log")]
     if not keep_open:
         arguments[1:1] = ["--die-with-parent"]
@@ -1154,6 +1275,16 @@ def playtest(args, state: Path, session: dict) -> int:
     gpu_display = getattr(args, "gpu_display", None)
     if gpu_display and private_display:
         raise ValueError("--gpu-display and --private-display are alternatives.")
+    if getattr(args, "moono_headless", False) is True and (gpu_display or private_display):
+        raise ValueError("--moono-headless uses no display; leave out --gpu-display and --private-display.")
+    moono = getattr(args, "moono", None)
+    moono = verify_moono_player(Path(moono)) if isinstance(moono, (str, Path)) else None
+    moono_tweaks = getattr(args, "moono_tweaks", None) if isinstance(getattr(args, "moono_tweaks", None), str) else "none"
+    moono_renderer = getattr(args, "moono_renderer", None) if isinstance(getattr(args, "moono_renderer", None), str) else None
+    moono_headless = moono is not None and getattr(args, "moono_headless", False) is True
+    if getattr(args, "moono_headless", False) is True and moono is None:
+        raise ValueError("--moono-headless needs --moono")
+    moono_arguments = moono_options(moono_tweaks, moono_renderer, getattr(args, "moono_tweaks_menu", False) is True, moono_headless) if moono else []
     package = args.package.resolve()
     manifest = verify_package(package)
     first_mods = getattr(args, "extra_mod_first", None)
@@ -1236,8 +1367,14 @@ def playtest(args, state: Path, session: dict) -> int:
         # ONI's Linux root is Unity persistentDataPath. Bind a fresh home and set
         # all XDG roots; the actual user's saves and mods are never writable.
         resolution = getattr(args, "resolution", None)
+        if moono is not None and not moono_headless:
+            refused = moono_display_error(screen["display"], connected_outputs(screen["display"], env))
+            if refused:
+                raise ValueError(refused)
+        if moono is not None:
+            write_moono_settings(profile)
         arguments = sandbox_command(home, state, output, game, thin, args.keep_open,
-                                    resolution if isinstance(resolution, tuple) else (1280, 720))
+                                    resolution if isinstance(resolution, tuple) else (1280, 720), moono, moono_arguments)
         (output / "runtime").mkdir(mode=0o700)
         record = spawn(arguments, output / "console.log", env)
         retain = False
@@ -1320,7 +1457,8 @@ def playtest(args, state: Path, session: dict) -> int:
                     timed_out = True
                     break
                 time.sleep(.05 if owner_limit is not None else 1)
-            screenshot(state, screen, output / "desktop-final.png")
+            if not moono_headless:  # a headless player draws nothing
+                screenshot(state, screen, output / "desktop-final.png")
             probe = read_json(probe_file) if probe_file.exists() else None
             report = read_json(colony_file) if colony_file.exists() else None
             log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").exists() else ""
@@ -1405,6 +1543,14 @@ def playtest(args, state: Path, session: dict) -> int:
                 "platform": "native Linux", "host_platform": "linux", "display": screen["display"], "steam_display": session["display"],
                 "private_display": private_display, "private_display_process": display_record, "software_rendering": not gpu_display,
                 "renderer": player_renderer(output),
+                # Which player ran the game: Unity's (the original) or Moono's (tools/ONI_HEADLESS.md#moono).
+                "player": "moono" if moono is not None else "unity",
+                "moono": moono is not None,
+                "moono_player": ({"path": str(moono), "release": moono_release(moono), **moono_log_facts(log),
+                                  "tweaks": moono_tweaks, "renderer_requested": moono_renderer or "auto",
+                                  "tweaks_menu": getattr(args, "moono_tweaks_menu", False) is True, "headless": moono_headless,
+                                  "settings": MOONO_SETTINGS, "options": moono_arguments}
+                                 if moono else None),
                 "inspection_seconds_requested": inspection_seconds,
                 "inspection_seconds_held": time.monotonic() - inspection_started if inspection_started is not None else 0,
                 "steam_blocked": steam_blocked(log),
@@ -1508,6 +1654,16 @@ def main() -> int:
                       help="menu mode only: the main menu resumes this colony save by itself (the game's AutoResumeSaveFile "
                            "preference); the run passes when the mod refuses the save before the game loads it, e.g. while "
                            "a stand-in that removed its patches keeps it off (--extra-mod-first, MA_OTHER_MOD_REMOVES_PATCHES=1)")
+    play.add_argument("--moono", type=Path, metavar="PLAYER_DIR",
+                      help="Run the game through this Moono player folder (OniMoono) instead of Unity's player, in the same sandbox")
+    play.add_argument("--moono-tweaks", default="none", metavar="none|all|exact|NAME,...",
+                      help="With --moono: its game tweaks (default none, the test default of Moono's own scripts)")
+    play.add_argument("--moono-renderer", choices=MOONO_RENDERERS,
+                      help="With --moono: its renderer (default: Moono chooses, Vulkan first on a discrete GPU)")
+    play.add_argument("--moono-headless", action="store_true",
+                      help="With --moono: its --headless (no window, no graphics, no X display; nothing is drawn or captured)")
+    play.add_argument("--moono-tweaks-menu", action="store_true",
+                      help="With --moono: keep its Moono Tweaks button on the main menu (default off, as in the original)")
     play.add_argument("--expected-refusal", action="append", metavar="TEXT",
                       help="A control run only: a mod log line holding TEXT, and the stack of an exception whose header holds it, "
                            "is the refusal the scenario asks for and not a failure; repeatable")

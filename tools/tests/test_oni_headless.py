@@ -2265,6 +2265,140 @@ class CopiedPayloadTests(unittest.TestCase):
             cleanup.assert_not_called()
 
 
+class MoonoTests(unittest.TestCase):
+    """--moono PLAYER_DIR: the game runs through Moono's player in the same sandbox (tools/ONI_HEADLESS.md#moono)."""
+    def player(self, root: Path, release: bytes = b"v2026.11.26.02") -> Path:
+        player = root / "moono-player"
+        player.mkdir()
+        (player / "OniMoono").write_bytes(b"\x7fELF")
+        (player / "OniMoono").chmod(0o755)
+        (player / "OniMoono.dll").write_bytes(b"MZ\x00 \x01\x00\x0cMoonoRelease" + bytes([len(release)]) + release + b"\x00\x00")
+        return player
+
+    def test_tweaks_map_to_repeated_game_tweak_options(self):
+        self.assertEqual(runner.moono_tweak_arguments("none"), ["--game-tweak", "none"])
+        self.assertEqual(runner.moono_tweak_arguments("exact"), ["--game-tweak", "exact"])
+        self.assertEqual(runner.moono_tweak_arguments("FastSave,-Splash"), ["--game-tweak", "FastSave", "--game-tweak", "-Splash"])
+        for wrong in ("", "none,all", "all,FastSave", "a b", "--frames"):
+            with self.assertRaises(ValueError, msg=wrong):
+                runner.moono_tweak_arguments(wrong)
+
+    def test_a_test_pins_moonos_own_test_defaults(self):
+        self.assertEqual(runner.moono_options(), ["--game-tweak", "none", "--splash", "none", "--log-paths", "full",
+                                                  "--crash-dialog", "off", "--no-tweaks-menu"])
+        self.assertEqual(runner.moono_options("all", "vulkan", tweaks_menu=True)[-2:], ["--renderer", "vulkan"])
+        self.assertNotIn("--no-tweaks-menu", runner.moono_options(tweaks_menu=True))
+        with self.assertRaises(ValueError):
+            runner.moono_options(renderer="d3d11")
+        self.assertEqual(runner.moono_options(headless=True)[-1], "--headless")
+        with self.assertRaisesRegex(ValueError, "no renderer"):
+            runner.moono_options(renderer="vulkan", headless=True)
+
+    def test_the_sandbox_starts_the_game_through_moono_in_steams_form(self):
+        root = Path("/srv/state"); player = Path("/opt/moono/player")
+        with mock.patch.object(runner, "idle_automounts", return_value=[]):
+            command = runner.sandbox_command(root / "runs/r/home", root, root / "runs/r", Path("/games/oni"), root / "runs/r/game",
+                                             keep_open=False, moono=player, moono_arguments=runner.moono_options())
+            original = runner.sandbox_command(root / "runs/r/home", root, root / "runs/r", Path("/games/oni"), root / "runs/r/game", keep_open=False)
+        self.assertIn(("--ro-bind", str(player), str(player)), list(zip(command, command[1:], command[2:])))
+        self.assertLess(command.index(str(Path.home())), command.index(str(player)))  # bound after the run's home
+        start = command.index(str(player / "OniMoono"))
+        self.assertEqual(command[start + 1:start + 10], runner.moono_options())
+        separator = command.index("--", start)
+        # Moono reads Unity's -force-glcore as --renderer opengl: a Moono run leaves it out.
+        self.assertEqual(command[separator + 1:], [a for a in original[original.index(str(root / "runs/r/game/OxygenNotIncluded")):] if a != "-force-glcore"])
+        self.assertIn("-force-glcore", original)
+        self.assertNotIn(("--unsetenv", "DISPLAY"), list(zip(command, command[1:])))
+        with mock.patch.object(runner, "idle_automounts", return_value=[]):
+            headless = runner.sandbox_command(root / "runs/r/home", root, root / "runs/r", Path("/games/oni"), root / "runs/r/game",
+                                              keep_open=False, moono=player, moono_arguments=runner.moono_options(headless=True))
+        for name in ("DISPLAY", "XAUTHORITY", "WAYLAND_DISPLAY"):
+            self.assertIn(("--unsetenv", name), list(zip(headless, headless[1:])))
+        self.assertEqual(command[command.index("-logFile") + 1], str(root / "runs/r/Player.log"))
+        pairs = list(zip(command, command[1:], command[2:]))
+        for key, value in runner.MOONO_ENVIRONMENT.items():
+            self.assertIn(("--setenv", key, value), pairs)
+        self.assertNotIn("OniMoono", " ".join(original))
+
+    def test_the_player_folder_its_release_and_its_log_facts(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            player = self.player(Path(temporary))
+            self.assertEqual(runner.verify_moono_player(player), player.resolve())
+            self.assertEqual(runner.moono_release(player), "v2026.11.26.02")
+            (player / "OniMoono").chmod(0o644)
+            with self.assertRaisesRegex(ValueError, "not executable"):
+                runner.verify_moono_player(player)
+            with self.assertRaisesRegex(ValueError, "no Moono player"):
+                runner.verify_moono_player(Path(temporary))
+        log = ("[engine] Moono starting: commit=0123abcd exe=/p/OniMoono game=/g .NET=10.0.0\n[engine] launch: from Steam's launch options (-- %command%)\n"
+               "[engine] renderer: Vulkan (auto, settings default); NVIDIA GeForce RTX 5090 is not integrated, so Vulkan first\n")
+        self.assertEqual(runner.moono_log_facts(log), {"commit": "0123abcd", "renderer": "Vulkan"})
+        self.assertEqual(runner.moono_log_facts("Renderer: llvmpipe\n"), {"commit": None, "renderer": None})
+
+    def test_a_display_without_a_connected_output_is_refused_for_moono(self):
+        xrandr = ("Screen 0: minimum 8 x 8, current 1920 x 1080\nHDMI-0 disconnected primary (normal left)\nDP-0 disconnected (normal)\n")
+        with mock.patch.object(runner.subprocess, "run", return_value=mock.Mock(returncode=0, stdout=xrandr)):
+            self.assertEqual(runner.connected_outputs(":99", {}), [])
+        with mock.patch.object(runner.subprocess, "run", return_value=mock.Mock(returncode=0, stdout="screen connected 1280x720+0+0\n")):
+            self.assertEqual(runner.connected_outputs(":1", {}), ["screen"])
+        with mock.patch.object(runner.subprocess, "run", side_effect=OSError("no xrandr")):
+            self.assertIsNone(runner.connected_outputs(":1", {}))
+        refusal = runner.moono_display_error(":99", [])
+        self.assertIn("Moono needs a monitor", refusal); self.assertIn("--moono-headless", refusal); self.assertIn("Xvfb desktop", refusal)
+        self.assertIn("could not query", runner.moono_display_error(":99", None))
+        self.assertIsNone(runner.moono_display_error(":1", ["screen"]))
+
+    def test_moono_settings_turn_its_update_check_off(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = runner.write_moono_settings(Path(temporary) / "profile")
+            self.assertEqual(path, Path(temporary) / "profile/oni-moono/settings.json")
+            self.assertEqual(json.loads(path.read_text()), {"updateCheck": False})
+
+    def test_a_headless_moono_run_needs_no_display_and_takes_no_screenshot(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            player = self.player(Path(temporary))
+            with _mock_playtest_case() as (args, state, session, record, events, writes, cleanup):
+                args.moono, args.moono_tweaks, args.moono_renderer, args.moono_tweaks_menu, args.moono_headless = player, "none", None, False, True
+                args.gpu_display, args.private_display = None, False
+                with mock.patch.object(runner, "connected_outputs", side_effect=AssertionError("no display is queried")):
+                    self.assertEqual(runner.playtest(args, state, session), 0)
+                self.assertIn("--headless", runner.spawn.call_args.args[0])
+                runner.screenshot.assert_not_called()
+                result = next(value for path, value in writes if path.name == "result.json")
+                self.assertTrue(result["moono_player"]["headless"])
+            with _mock_playtest_case() as (args, state, session, record, events, writes, cleanup):
+                args.moono, args.moono_headless, args.gpu_display = player, True, ":99"
+                with self.assertRaisesRegex(ValueError, "uses no display"):
+                    runner.playtest(args, state, session)
+            with _mock_playtest_case() as (args, state, session, record, events, writes, cleanup):
+                args.moono, args.moono_headless, args.gpu_display, args.private_display = player, False, None, False
+                args.moono_tweaks, args.moono_renderer, args.moono_tweaks_menu = "none", None, False
+                with mock.patch.object(runner, "connected_outputs", return_value=[]):
+                    with self.assertRaisesRegex(ValueError, "Moono needs a monitor"):
+                        runner.playtest(args, state, session)
+                self.assertNotIn("spawn", events)
+
+    def test_a_moono_run_launches_through_its_player_and_says_so_in_result_json(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            player = self.player(Path(temporary))
+            with _mock_playtest_case() as (args, state, session, record, events, writes, cleanup):
+                args.moono, args.moono_tweaks, args.moono_renderer, args.moono_tweaks_menu = player, "none", "vulkan", False
+                with mock.patch.object(runner, "connected_outputs", return_value=["screen"]):
+                    self.assertEqual(runner.playtest(args, state, session), 0)
+                command = runner.spawn.call_args.args[0]
+                self.assertIn(str(player.resolve() / "OniMoono"), command)
+                self.assertEqual(command[command.index("--renderer") + 1], "vulkan")
+                result = next(value for path, value in writes if path.name == "result.json")
+                self.assertEqual((result["player"], result["moono"]), ("moono", True))
+                self.assertEqual(result["moono_player"]["release"], "v2026.11.26.02")
+                self.assertEqual((result["moono_player"]["tweaks"], result["moono_player"]["renderer_requested"]), ("none", "vulkan"))
+            with _mock_playtest_case() as (args, state, session, record, events, writes, cleanup):
+                self.assertEqual(runner.playtest(args, state, session), 0)
+                result = next(value for path, value in writes if path.name == "result.json")
+                self.assertEqual((result["player"], result["moono"], result["moono_player"]), ("unity", False, None))
+                self.assertNotIn("--", runner.spawn.call_args.args[0])
+
+
 class LaunchLifetimeTests(unittest.TestCase):
     def test_private_steam_is_set_offline_before_game_launch(self):
         with _mock_playtest_case() as (args, state, session, record, events, writes, cleanup):

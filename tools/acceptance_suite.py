@@ -230,6 +230,15 @@ class Infra:
     mingw_root: Path
     wine_root: Path
     gpu_display: str
+    # The player of the Linux games: None for Unity's (the original), else a Moono player folder
+    # (tools/oni_headless.py --moono). Each result.json records which one ran (its "moono" field).
+    moono: Path | None = None
+
+
+def linux_player(infra) -> list[str]:
+    """The Linux game steps' player choice, for every command that starts tools/oni_headless.py run."""
+    moono = getattr(infra, "moono", None)
+    return ["--moono", str(moono)] if moono is not None else []
 
 
 @dataclass
@@ -692,7 +701,7 @@ def build_windows(layout: Layout, revision: str, infra: Infra) -> tuple[dict, di
 # ---------------------------------------------------------------- game commands
 
 def linux_command(step: Step, package: Path, output: Path, infra: Infra, load: Path | None = None) -> list[str]:
-    command = [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package)]
+    command = [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package), *linux_player(infra)]
     if step.kind == "cycle":
         # The frozen save is a base-game colony: pin the content so the run does not depend on which
         # game install the harness defaults to (a Spaced Out!-enabled install would otherwise be the
@@ -1095,14 +1104,14 @@ def resume_refused_command(package: Path, output: Path, infra: Infra, save: Path
     reads as changed (another mod's patch alone is accepted, docs/game-update-resilience.md#other-mods), while
     the two load entries stay verified and the mod's guard is installed on them.
     """
-    return [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package),
+    return [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package), *linux_player(infra),
             "--mode", "menu", "--resume-save", str(save), "--extra-mod-first", str(other_mod),
             "--gpu-display", infra.gpu_display, "--timeout", "600", "--output", str(output)]
 
 
 def menu_other_mod_command(package: Path, output: Path, infra: Infra, mod: Path) -> list[str]:
     """The main menu with another mod loaded first; the release folder is judged by the game's log."""
-    return [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package),
+    return [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package), *linux_player(infra),
             "--mode", "menu", "--extra-mod-first", str(mod), "--gpu-display", infra.gpu_display, "--timeout", "600", "--output", str(output)]
 
 

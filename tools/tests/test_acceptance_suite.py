@@ -448,6 +448,16 @@ class GuardTests(unittest.TestCase):
         with self.assertRaises(suite.Refused):
             suite.base_source_save(output, REVISION)
 
+    def test_linux_game_commands_carry_the_player_choice(self):
+        infra = suite.Infra(Path("/linux"), Path("/windows"), Path("/proton"), Path("/mingw"), Path("/wine"), ":99")
+        moono = suite.Infra(Path("/linux"), Path("/windows"), Path("/proton"), Path("/mingw"), Path("/wine"), ":99", Path("/moono/player"))
+        step = next(s for s in suite.plan("release") if s.kind == "batch")
+        self.assertNotIn("--moono", suite.linux_command(step, Path("/p"), Path("/o"), infra))
+        for command in (suite.linux_command(step, Path("/p"), Path("/o"), moono),
+                        suite.menu_other_mod_command(Path("/p"), Path("/o"), moono, Path("/mod")),
+                        suite.resume_refused_command(Path("/p"), Path("/o"), moono, Path("/s.sav"), Path("/mod"))):
+            self.assertEqual(command[command.index("--moono") + 1], "/moono/player")
+
     def test_a_scenario_with_another_mod_loads_it_first_or_says_how_to_get_it(self):
         step = next(s for s in suite.plan("release") if s.options.get("scenario") == "rephysicalized")
         command = suite.linux_command(step, Path("/p"), Path("/o"), CommandTests.infra)
