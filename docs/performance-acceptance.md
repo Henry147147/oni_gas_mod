@@ -306,6 +306,13 @@ must refuse it before the game loads it
 patch alone no longer keeps the mod off, so the stand-in removes its patches
 again (`MA_OTHER_MOD_REMOVES_PATCHES=1`) and the step requires the refusal
 for changed game code.
+Two release-tier steps load Rephysicalized (Workshop item 3609531831) first
+from `local/other-mods/src/Rephysicalized`: the batch of the scenario
+`rephysicalized` and `linux-menu-rephysicalized`, where the release folder
+must start at the main menu (`passed-menu-active`) and Player.log must name
+the game methods it runs beside Rephysicalized's patches on
+([why](colony-owner.md#other-mods-rephysicalized)). Without that folder both
+steps stop and say to run `python3 tools/workshop.py fetch-mod 3609531831`.
 `--scenario` finds them as well. A new scenario belongs in one of the lists:
 a test compares them with the driver's scenario list. Sustained player speed still requires
 a live colony measurement. Historical-build qualification runs separately.

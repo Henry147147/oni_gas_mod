@@ -1635,6 +1635,23 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(len(kept), 1)
         self.assertEqual(runner.classify("menu", refusal + other, self.probe, None, False, expected_refusals=asked), ("failed-mod-log-errors", 2))
 
+    def test_a_release_folder_at_the_menu_with_another_mod_first_is_judged_by_its_log(self):
+        release = {"kind": "release", "release_ready": True}
+        self.assertIsNone(runner.release_mode_error(release, "menu", False, True))
+        menu = "[12:00:00.000] [1] [INFO] -- MAIN MENU -- \n"
+        verified = ("[Mixed Atmospheres] Game build 764025 verified: 3010 managed dependencies match the game contract (written against build 764025) "
+                    "in 450 ms. 2 game methods the mod uses carry other mods' Harmony patches; their code is verified and the mod runs beside the patches:\n"
+                    "  Db.Initialize <- Rephysicalized (Harmony: Rephysicalized)\n  MainMenu.OnSpawn <- Rephysicalized (Harmony: Rephysicalized)\n"
+                    "[12:00:00.100] [1] [INFO] next line\n")
+        started = "[Mixed Atmospheres] Integration probe completed. The colony owner takes the gases and liquids of a new base-game or Spaced Out colony. Report: Player.log only\n"
+        self.assertEqual(runner.other_mod_patches(verified), ["Db.Initialize <- Rephysicalized (Harmony: Rephysicalized)", "MainMenu.OnSpawn <- Rephysicalized (Harmony: Rephysicalized)"])
+        self.assertEqual(runner.other_mod_patches(verified.replace("2 game methods the mod uses carry other mods'", "")), [])
+        self.assertEqual(runner.classify_release_menu(verified + started + menu), ("passed-menu-active", 0))
+        self.assertEqual(runner.classify_release_menu(verified + menu), ("failed-menu-not-active", 2))
+        refused = "[Mixed Atmospheres] Not active on game build 764025 (the game's code differs from the supported build); nothing is patched.\n"
+        self.assertEqual(runner.classify_release_menu(refused + started + menu), ("failed-menu-not-active", 2))
+        self.assertEqual(runner.classify_release_menu(verified + started), ("failed-before-main-menu", 2))
+
     def test_other_mods_patches_on_the_verified_line_are_no_failure(self):
         """A mod loaded first whose patches are tolerated (--extra-mod-first): the verified line names them."""
         verified = ("[12:00:00.000] [1] [INFO] [Mixed Atmospheres] Game build 764025 verified: 3010 managed dependencies match the game "

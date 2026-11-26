@@ -76,11 +76,17 @@ class PlanTests(unittest.TestCase):
         quick, release = names(suite.plan("quick")), suite.plan("release")
         extra = [s for s in release if s.name not in quick]
         self.assertEqual([s.name for s in extra],
-                         [f"linux-x{i}" for i in range(1, len(suite.LINUX_EXTRA_BATCHES) + 1)] + ["linux-resume-refused", "linux-ten-cycle"])
+                         [f"linux-x{i}" for i in range(1, len(suite.LINUX_EXTRA_BATCHES) + 1)] +
+                         ["linux-resume-refused", "linux-menu-rephysicalized", "linux-ten-cycle"])
         self.assertEqual(extra[-1].options["frames"], 30000)
+        # Another mod loaded first is no refusal: the main menu with Rephysicalized first, the release folder judged by its log.
+        menu = suite.describe(extra[-2])["command"]
+        self.assertEqual((extra[-2].kind, extra[-2].deps), ("menu-other-mod", ("linux-build",)))
+        self.assertEqual(menu[menu.index("--mode") + 1], "menu")
+        self.assertEqual(menu[menu.index("--extra-mod-first") + 1], str(suite.ROOT / "local/other-mods/src/Rephysicalized"))
         # The guard of a refused mod resumes the autosave that the one-cycle run wrote on the running build.
-        self.assertEqual((extra[-2].kind, extra[-2].deps), ("resume-refused", ("linux-one-cycle",)))
-        command = suite.describe(extra[-2])["command"]
+        self.assertEqual((extra[-3].kind, extra[-3].deps), ("resume-refused", ("linux-one-cycle",)))
+        command = suite.describe(extra[-3])["command"]
         self.assertEqual(command[command.index("--mode") + 1], "menu")
         self.assertEqual(command[command.index("--resume-save") + 1], "<runs>/linux-one-cycle/auto_save/<autosave>")
         self.assertEqual(command[command.index("--extra-mod-first") + 1], "<runs>/linux-resume-refused-other-mod")
@@ -441,6 +447,29 @@ class GuardTests(unittest.TestCase):
         write(output / "result.json", result)
         with self.assertRaises(suite.Refused):
             suite.base_source_save(output, REVISION)
+
+    def test_a_scenario_with_another_mod_loads_it_first_or_says_how_to_get_it(self):
+        step = next(s for s in suite.plan("release") if s.options.get("scenario") == "rephysicalized")
+        command = suite.linux_command(step, Path("/p"), Path("/o"), CommandTests.infra)
+        self.assertEqual(command[command.index("--extra-mod-first") + 1], str(suite.OTHER_MODS / "Rephysicalized"))
+        self.assertEqual(command[command.index("--dlc-mask") + 1], "0")
+        with mock.patch.object(suite, "OTHER_MODS", self.root / "absent"):
+            with self.assertRaisesRegex(suite.Refused, "tools/workshop.py fetch-mod 3609531831"):
+                suite.other_mod_folder("Rephysicalized")
+        present = self.root / "mods" / "Rephysicalized"
+        write(present / "mod.yaml", "title: 'Rephysicalized'\n")
+        with mock.patch.object(suite, "OTHER_MODS", self.root / "mods"):
+            self.assertEqual(suite.other_mod_folder("Rephysicalized"), present)
+
+    def test_the_menu_with_another_mod_needs_the_mod_active_and_its_patches_named(self):
+        output = self.root / "menu"
+        write(output / "result.json", {"status": "passed-menu-active", "other_mod_patches": ["Db.Initialize <- Rephysicalized (Harmony: Rephysicalized)"]})
+        checks, details = suite.menu_other_mod_checks(0, output)
+        self.assertTrue(all(checks.values()), checks)
+        self.assertEqual(len(details["other_mod_patches"]), 1)
+        write(output / "result.json", {"status": "failed-menu-not-active", "other_mod_patches": []})
+        checks, _ = suite.menu_other_mod_checks(2, output)
+        self.assertEqual(checks, {"harness_pass": False, "mod_active": False, "other_mod_patches_named": False})
 
     def test_resume_refused_needs_the_changed_code_refusal_and_its_guard(self):
         # The stand-in removed its patches (MA_OTHER_MOD_REMOVES_PATCHES=1): another mod's patch alone is

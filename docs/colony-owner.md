@@ -2191,6 +2191,84 @@ temperature. A sealed overfull pocket therefore keeps its liquid booked until
 digging gives it room, and then yields the game's amount. Released mass is
 booked as an injection.
 
+<a id="other-mods-rephysicalized"></a>
+## Other mods: Rephysicalized
+
+Another mod's component that reads or changes gases itself, instead of
+through the game's consumers and emitters, sees the owner only through the
+game's cell readers: `Grid.Element` is a cell's most massive gas and
+`Grid.Mass` all its gas. Rephysicalized (Workshop item 3609531831) has such a
+component, and 1.14.0 adapts it (user request 2026-11-26: both mods must run
+and load together).
+
+- **What it does.** `Rephysicalized.DualGasElementConsumer` is the oxygen
+  intake of every fuel burner (coal, petroleum, natural gas, wood and peat
+  generators, kiln, smoker, campfire, gas range, ice kettle), of every crop
+  (`PlantGasConsumer`, which wilts when its buffer is empty) and, with its
+  RealBreathing option, of critters. Every 200 ms it takes, from each cell
+  within its radius whose shown element carries its `OxidizerGas` tag (oxygen,
+  polluted oxygen), `min(rate x dt, Grid.Mass, room)` without a callback, and
+  stores that amount at once.
+- **Why it needs adapting.** Under the owner, oxygen in a cell where carbon
+  dioxide (or any gas) has more mass was invisible to it: burners stopped and
+  crops wilted in air with oxygen to spare. And a cell's `Grid.Mass` is all its
+  gas while the owner extracts only oxygen, so the storage got oxygen that
+  never left the world whenever the cell held less oxygen than it asked for.
+- **What the mod does.** Once every mod is loaded (`Db.Initialize`), the mod
+  looks for the type by name (no reference to Rephysicalized's assembly),
+  checks the method and each field it uses, and patches the method under a
+  Harmony owner of its own, `MixedAtmospheres.OtherMods`, so that the check
+  that this mod's owner patched only verified game methods keeps its meaning.
+  Player.log says "Other-mod compatibility: Rephysicalized oxygen intake reads
+  the owner's mixture"; a version whose form differs is left alone and named
+  in one line. While the owner runs, for each owned cell the intake reads the
+  cell's composition and asks each oxidizer constituent, most massive first,
+  for at most what it holds (rounded down to binary32), from that cell alone
+  (radius 0: the amount asked is what that cell's composition justified, and
+  an extraction never reaches past it into a cell another request already
+  counted), with a consumed-mass callback. The storage is credited what the
+  owner's receipt reports, at its temperature and with its germs, a tick
+  later. Requests in flight count against the storage's room; one that waits
+  5 s without an answer frees it. A consumer or storage gone when its receipt
+  arrives gives the gas back to the world at its cell. Cells the owner does
+  not hold, and the whole component while the owner is not active, keep
+  Rephysicalized's own logic.
+- **What reads the result.** `PlantGasConsumer` reads its buffer every
+  second and starves below 20 g, `OxidizerLowStatus` shows a status while the
+  buffer is low and Rephysicalized's critter breathing uses its storage. With
+  the credit a tick later, a crop or burner that starts with an empty buffer
+  can show its low status for one more second; the buffer then fills as
+  before.
+- **Suffocating critters.** With Rephysicalized's RealBreathing option a
+  suffocating critter looks for a cell with oxidizer
+  (`AnimalSuffocatingStates.OxidizerCellQuery.HasOxidizer`: the shown element
+  is an oxidizer gas with mass). A postfix, installed the same way with its own
+  Player.log line, also counts an owned cell whose composition holds any
+  oxidizer gas with mass.
+- **Not adapted.** Rephysicalized's `EnviromenmentalPreparation` cooks meat,
+  fish and eggs in hot carbon dioxide (and other items in liquids): it reads
+  the shown element of the item's cell, so under the owner it cooks only where
+  carbon dioxide is the most massive gas. No other Rephysicalized component
+  decides on the shown element of a gas cell.
+- **Control.** `MA_OTHER_MOD_COMPAT=off` (read once, logged) leaves both
+  components unadapted, so the scenario can show what the originals do.
+- **Its pipe intake.** Rephysicalized replaces the Polymerizer's intake with
+  `RephysicalizedConduitConsumer`, which reads and takes from the pipe through
+  the game's pipe calls (`ConduitFlow.GetContents`, `RemoveElement`) in a
+  conduit updater of its own. The scenario `rephysicalized` checks it on the
+  owner's mixed pipes.
+- **Its elements.** Rephysicalized adds Molten Silicon and Silicon Gas and
+  edits other elements, so a colony saved without it is refused while it is
+  on, and the other way round, with what differs
+  ([saves across builds](game-update-resilience.md#saves-across-builds)).
+- **Tests.** The scenario `rephysicalized` (below), in the release tier with
+  Rephysicalized loaded first from `local/other-mods/src/Rephysicalized`
+  (`python3 tools/workshop.py fetch-mod 3609531831` puts it there; third-party
+  mods stay out of git), and the release-tier step `linux-menu-rephysicalized`:
+  the main menu with Rephysicalized first, where the mod must start and
+  Player.log must name the game methods it runs beside Rephysicalized's
+  patches on ([other mods](game-update-resilience.md#other-mods)).
+
 ## Scenarios
 
 `tools/oni_headless.py run --mode colony-owner --scenario NAME` checks one
@@ -2227,6 +2305,7 @@ The home asteroid of a Spaced Out! colony is 160 cells wide with the printing po
 | `building-emitter` | A Fertilizer Synthesizer runs: its natural gas reaches the owner, the game's data holds [the emitted-mass table](#the-emitted-mass-table) for its handle, and the building reads the rate it emits at (10 g/s). |
 | `message-edges` | Unusual forms of the game's messages: a withdrawal from a rectangle (the Pitcher Pump) takes from its rectangle only; a withdrawal from a solid tile (a Beeta mining uranium ore) takes the tile's mass and answers with it, because [a solid element's withdrawal is ONI's](#element-consumers-and-emitters); a dig of the backwall alone leaves the tile in front closed. Also runs under `--mode colony-vanilla`, its reference. |
 | `germ-cleaner` | Two pools of water with food poisoning germs behind a wall; a Sanishell with its emitter on cleans the left one: it loses about 9,200 germs a cell in 33 s, the other pool keeps its germs ([germ emitters with a negative count](#germ-cleaners)). Also runs under `--mode colony-vanilla`, its reference. |
+| `rephysicalized` | Needs Rephysicalized loaded first (`--extra-mod-first local/other-mods/src/Rephysicalized`); fails at once without it. Four sealed rooms: a Coal Generator in air where carbon dioxide outweighs oxygen in every cell (its oxidizer storage fills, it runs, and the oxygen credited to it is the oxygen its room lost), the same generator in thin air (it stores no oxygen its room did not lose), a wild Mealwood in the mixed air (its gas buffer fills and it does not starve), and a Polymerizer, powered and with its exhaust piped to a vent, fed petroleum from a Liquid Reservoir through a pipe (Rephysicalized's own pipe intake takes it; what the pipe lost is in the press or converted to polypropylene at 1.6 kg per kg). Also runs under ONI's own simulation (`--mode colony-vanilla`) with layered rooms, as the reference ([details](#other-mods-rephysicalized)). |
 | `every-building-1` to `-4`, `every-building` | [Every building](#every-building) of the active content in four parts (or one): each built complete in a sealed room, left for 22 ticks, removed; none logs an exception or an error beyond what it logs under ONI's own simulation, the owner runs without a fault and the ledgers close. Under `--mode colony-vanilla` the same run records that baseline. |
 | `every-rocket-building` | Spaced Out!: each rocket engine on a launch pad, each other rocket module on an engine and each rocket interior building inside a habitat's interior, with the same checks. |
 | `every-living-1` to `-3` | Each critter, plant and geyser of the active content, spawned in the same room for 22 ticks, with the same checks. |

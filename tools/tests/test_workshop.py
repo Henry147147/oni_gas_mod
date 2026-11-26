@@ -340,5 +340,30 @@ class Upload(unittest.TestCase):
         self.assertEqual(code, 0); self.assertIn("nothing to upload", text)
 
 
+class FetchMod(unittest.TestCase):
+    """Another mod's published ZIP, unpacked for the tests that load it (fetch-mod); untrusted input."""
+    def setUp(self):
+        self.root = Path(tempfile.mkdtemp())
+
+    def archive(self, names) -> Path:
+        path = self.root / "mod.zip"
+        with zipfile.ZipFile(path, "w") as archive:
+            for name in names:
+                archive.writestr(name, name)
+        return path
+
+    def test_a_mod_unpacks_with_windows_separators_into_a_new_folder(self):
+        count = WORKSHOP.extract_mod(self.archive(["mod.yaml", "Other.dll", "anim\\assets\\a.png"]), self.root / "Other")
+        self.assertEqual(count, 3)
+        self.assertEqual((self.root / "Other/anim/assets/a.png").read_text(), "anim\\assets\\a.png")
+        with self.assertRaises(FileExistsError):
+            WORKSHOP.extract_mod(self.archive(["mod.yaml"]), self.root / "Other")
+
+    def test_entries_outside_the_folder_or_without_a_mod_are_refused(self):
+        for names in (["mod.yaml", "../escape.dll"], ["mod.yaml", "/abs.dll"], ["mod.yaml", "..\\escape.dll"], ["Other.dll"]):
+            with self.assertRaises(WORKSHOP.Refused, msg=names):
+                WORKSHOP.extract_mod(self.archive(names), self.root / ("x" + str(len(list(self.root.iterdir())))))
+
+
 if __name__ == "__main__":
     unittest.main()

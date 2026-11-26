@@ -14,6 +14,8 @@
     <!-- A colony's saved gases and liquids against the game's (ColonyCatalogueDifference). -->
     <Compile Include="../../managed/MixedAtmospheres.Oni/ColonyCatalogueDifference.cs" Link="ColonyCatalogueDifference.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OniNativeColony.Material.cs" Link="OniNativeColony.Material.cs" />
+    <!-- The arithmetic of an owner-aware intake for another mod's component (OtherModCompat.Rephysicalized.cs). -->
+    <Compile Include="../../managed/MixedAtmospheres.Oni/OtherModCompat.IntakeLedger.cs" Link="OtherModCompat.IntakeLedger.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirLoadHeaderV1.cs" Link="OwnedReservoirLoadHeaderV1.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedTemplates.cs" Link="OwnedReservoirSavedTemplates.cs" />
     <Compile Include="../../managed/MixedAtmospheres.Oni/OwnedReservoirSavedInflation.cs" Link="OwnedReservoirSavedInflation.cs" />

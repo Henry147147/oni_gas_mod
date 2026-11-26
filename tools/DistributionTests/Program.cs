@@ -70,14 +70,14 @@ static class Program
     private static void GameRefusals()
     {
         const string Updates = "Mixed Atmospheres update";
-        var newer = ModAdmission.UnsupportedBuild("1.13.9", 770001, 764025);
-        Check(newer.Notice.Contains("Mixed Atmospheres 1.13.9 does not support this version of Oxygen Not Included") && newer.Notice.Contains("the game is build 770001") &&
+        var newer = ModAdmission.UnsupportedBuild("1.14.0", 770001, 764025);
+        Check(newer.Notice.Contains("Mixed Atmospheres 1.14.0 does not support this version of Oxygen Not Included") && newer.Notice.Contains("the game is build 770001") &&
             newer.Notice.Contains("for build 764025") && newer.Notice.Contains(Updates) && newer.Notice.Contains("has not changed the game"), newer.Notice);
         Check(newer.LoadRefusal.Contains("(build 770001)") && newer.LoadRefusal.Contains("Install a Mixed Atmospheres update") &&
             newer.LoadRefusal.Contains("The save has not been changed."), newer.LoadRefusal);
-        var older = ModAdmission.UnsupportedBuild("1.13.9", 700000, 744825);
+        var older = ModAdmission.UnsupportedBuild("1.14.0", 700000, 744825);
         Check(older.Notice.Contains("Update Oxygen Not Included") && !older.Notice.Contains(Updates) && older.LoadRefusal.Contains("Update Oxygen Not Included, then load"), older.Notice);
-        Check(ModAdmission.UnsupportedBuild("1.13.9", 0, 764025).Notice.Contains("an unknown build"), "unreadable build number");
+        Check(ModAdmission.UnsupportedBuild("1.14.0", 0, 764025).Notice.Contains("an unknown build"), "unreadable build number");
 
         // Another mod's patch alone is no refusal (docs/game-update-resilience.md#other-mods): Player.log
         // counts the patched methods after the verified line and lists one per line.
@@ -165,6 +165,29 @@ static class Program
         Check(many.Contains("Missing from this game: A, B, C and 3 more.\nChanged: W, X, Y and Z.\n\n"), many);
         Check(ModAdmission.CatalogueLoadRefusal(new string[0], new string[0], new string[0], true) == Lead + "The order of the game's elements changed.\n\n" + Remedy, "order only");
         Check(ModAdmission.CatalogueLoadRefusal(null, null, null, false) == Lead + Remedy, "unreadable saved table: what to do only");
+    }
+
+    // Rephysicalized's oxygen intake under the owner (IntakeLedger): never more than a constituent
+    // holds, the room counts what is in flight, and receipts settle it.
+    private static void Intakes()
+    {
+        Check(IntakeLedger.RoundDown(0.1) <= 0.1 && IntakeLedger.RoundDown(0.1) > 0.0999999, "rounded down: " + IntakeLedger.RoundDown(0.1).ToString("R"));
+        Check((double)IntakeLedger.RoundDown(1.0 / 3) <= 1.0 / 3 && IntakeLedger.RoundDown(0.25) == 0.25f, "exact values stay");
+        Check(IntakeLedger.RoundDown(0) == 0 && IntakeLedger.RoundDown(-1) == 0 && IntakeLedger.RoundDown(double.NaN) == 0 && IntakeLedger.RoundDown(1e-60) == 0, "nothing to give");
+        Check(IntakeLedger.Take(0.6, 0.04f, 1f) == 0.04f && IntakeLedger.Take(0.02, 0.04f, 1f) == IntakeLedger.RoundDown(0.02) && IntakeLedger.Take(0.6, 0.04f, 0.01f) == 0.01f, "least of rate, constituent and room");
+        Check(IntakeLedger.Take(0.6, 0f, 1f) == 0 && IntakeLedger.Take(0.6, 0.04f, -1f) == 0, "no negative take");
+        Check(IntakeLedger.Room(1f, 0.3f, 0.5f) == 1f - 0.3f - 0.5f && IntakeLedger.Room(1f, 0.8f, 0.5f) == 0 && IntakeLedger.Room(1f, 0.3f, -2f) == 0.7f, "room");
+        var ledger = new IntakeLedger();
+        ledger.Request(0.04f, 10); ledger.Request(0.02f, 10.2);
+        Check(ledger.Pending == 2 && Math.Abs(ledger.InFlight - 0.06f) < 1e-7, "two requests in flight");
+        ledger.Settle(0.04f, 0.035f, true);
+        Check(ledger.Pending == 1 && Math.Abs(ledger.InFlight - 0.02f) < 1e-7 && Math.Abs(ledger.Credited - 0.035f) < 1e-9, "a receipt settles its request, not more");
+        ledger.Settle(0.02f, 0.02f, false);
+        Check(ledger.Pending == 0 && ledger.InFlight == 0 && Math.Abs(ledger.Returned - 0.02f) < 1e-9 && Math.Abs(ledger.Requested - 0.06f) < 1e-7, "the last receipt clears the flight; a gone consumer's gas is returned");
+        ledger.Request(0.04f, 20);
+        Check(!ledger.Expire(24, 5) && ledger.Expire(25.5, 5) && ledger.InFlight == 0 && ledger.Pending == 0 && ledger.Expired == 1, "an unanswered request frees its room");
+        ledger.Settle(0.04f, 0.04f, true);
+        Check(ledger.InFlight == 0 && ledger.Pending == 0, "a late receipt after expiry stays at zero");
     }
 
     private static bool Refused(Action parse, string why)
@@ -309,7 +332,7 @@ static class Program
 
     private static int Main()
     {
-        Platforms(); Packs(); Duplicates(); GameRefusals(); Catalogues(); SyntheticEnvelopes();
+        Platforms(); Packs(); Duplicates(); GameRefusals(); Catalogues(); Intakes(); SyntheticEnvelopes();
         var real = RealEnvelopes();
         var content = PreparedContent();
         Console.WriteLine(content == 0 ? "Prepared base saves: none available, skipped." : $"Prepared base saves: {content} content decisions pinned.");

@@ -112,6 +112,7 @@ namespace MixedAtmospheres.Oni
                     case "building-emitter": BuildingEmitter(frame); break;
                     case "message-edges": MessageEdges(frame); break;
                     case "germ-cleaner": GermCleaner(frame); break;
+                    case "rephysicalized": Rephysicalized(frame); break;
                     case "every-rocket-building": EveryRocketBuilding(frame); break;
                     case "every-living-1": EveryLiving(frame, 1, 3); break;
                     case "every-living-2": EveryLiving(frame, 2, 3); break;

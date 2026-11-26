@@ -144,7 +144,24 @@ LINUX_EXTRA_BATCHES = (
     ("every-living-1", 1, ("--speed", "3"), {}),
     ("every-living-2", 1, ("--speed", "3"), {}),
     ("every-living-3", 1, ("--speed", "3"), {}),
+    # Rephysicalized's own oxygen intake, crop and polymerizer intake on the owner's mixtures, with that mod
+    # loaded first (docs/colony-owner.md#other-mods-rephysicalized; OTHER_MOD_SCENARIOS).
+    ("rephysicalized", 0, (), {}),
 )
+# Third-party mods some scenarios load first. They never enter git: they lie in local/other-mods/src,
+# where tools/workshop.py fetch-mod puts a Workshop item.
+OTHER_MODS = ROOT / "local/other-mods/src"
+OTHER_MOD_ITEMS = {"Rephysicalized": 3609531831}
+OTHER_MOD_SCENARIOS = {"rephysicalized": "Rephysicalized"}
+
+
+def other_mod_folder(name: str) -> Path:
+    """A third-party mod's folder, or Refused saying how to get it."""
+    folder = OTHER_MODS / name
+    if not (folder / "mod.yaml").is_file():
+        raise Refused(f"{name} is not in {folder}: run python3 tools/workshop.py fetch-mod {OTHER_MOD_ITEMS[name]} "
+                      f"(Workshop item {OTHER_MOD_ITEMS[name]}; third-party mods stay out of git)")
+    return folder
 # In-game scenarios that no Linux batch runs, and why.
 UNTIERED_SCENARIOS = {
     "every-building": "the whole building list in one game; its four parts run it in the release tier",
@@ -284,6 +301,9 @@ def plan(tier: str, platforms: tuple[str, ...] = PLATFORMS, scenarios: tuple[str
             # The guard of a mod that is off (docs/playtest-1.13.8.md): the autosave the one-cycle run
             # wrote on this game build must be refused before the game loads it.
             steps.append(Step("linux-resume-refused", "linux", "resume-refused", ("linux-one-cycle",)))
+            # Another mod's patches on game methods the mod uses are no refusal (docs/game-update-resilience.md#other-mods):
+            # with Rephysicalized loaded first the mod must start and name the methods it patched.
+            steps.append(Step("linux-menu-rephysicalized", "linux", "menu-other-mod", build, {"mod": "Rephysicalized"}))
             steps.append(Step("linux-ten-cycle", "linux", "cycle", build, {"frames": CYCLE_FRAMES["ten-cycle"]}))
     if "windows" in platforms:
         build = ("windows-build",)
@@ -687,7 +707,9 @@ def linux_command(step: Step, package: Path, output: Path, infra: Infra, load: P
     command += ["--dlc-mask", str(step.options.get("dlc_mask", 0)), "--mode", "colony-owner", "--gpu-display", infra.gpu_display,
                 "--timeout", str(LINUX_TIMEOUT), "--output", str(output)]
     if step.kind == "batch":
-        return command + ["--scenario", step.options["scenario"], *step.options.get("arguments", ())]
+        first = OTHER_MOD_SCENARIOS.get(step.options["scenario"])
+        return command + ["--scenario", step.options["scenario"], *step.options.get("arguments", ()),
+                          *(("--extra-mod-first", str(OTHER_MODS / first)) if first else ())]
     return command + ["--cluster", step.options["cluster"], "--frames", str(step.options["frames"])]
 
 
@@ -1078,6 +1100,21 @@ def resume_refused_command(package: Path, output: Path, infra: Infra, save: Path
             "--gpu-display", infra.gpu_display, "--timeout", "600", "--output", str(output)]
 
 
+def menu_other_mod_command(package: Path, output: Path, infra: Infra, mod: Path) -> list[str]:
+    """The main menu with another mod loaded first; the release folder is judged by the game's log."""
+    return [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package),
+            "--mode", "menu", "--extra-mod-first", str(mod), "--gpu-display", infra.gpu_display, "--timeout", "600", "--output", str(output)]
+
+
+def menu_other_mod_checks(rc: int, output: Path) -> tuple[dict, dict]:
+    result = read_json(output / "result.json")
+    patches = result.get("other_mod_patches") or []
+    checks = {"harness_pass": rc == 0, "mod_active": result.get("status") == "passed-menu-active",
+              "other_mod_patches_named": bool(patches)}
+    return checks, {"classification": result.get("status"), "other_mod_patches": patches,
+                    "mod_failure_lines": result.get("mod_failure_lines")}
+
+
 def resume_refused_checks(rc: int, output: Path, save: Path, save_sha: str) -> tuple[dict, dict]:
     result = read_json(output / "result.json")
     log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").is_file() else ""
@@ -1270,6 +1307,12 @@ class Suite:
             rc = self.game(resume_refused_command(package, output, self.infra, save, other_mod), log, env)
             checks, details = resume_refused_checks(rc, output, save, save_sha)
             return checks, {**common, "returncode": rc, **details}
+        if step.kind == "menu-other-mod":
+            rc = self.game(menu_other_mod_command(package, output, self.infra, other_mod_folder(step.options["mod"])), log, env)
+            checks, details = menu_other_mod_checks(rc, output)
+            return checks, {**common, "returncode": rc, **details}
+        if step.kind == "batch" and step.options["scenario"] in OTHER_MOD_SCENARIOS:
+            other_mod_folder(OTHER_MOD_SCENARIOS[step.options["scenario"]])
         if step.kind != "cycle":
             rc = self.game(linux_command(step, package, output, self.infra), log, env)
             checks, details = linux_checks(rc, output)
@@ -1709,6 +1752,8 @@ def describe(step: Step) -> dict:
                 "commands": [locked_check(name, cmd) for name, cmd in offline_commands(Path("build-production"), output, infra.linux_game)]}
     if step.kind == "build":
         command = ["<build, CTest, hook tests and package>"]
+    elif step.kind == "menu-other-mod":
+        command = menu_other_mod_command(package, output, infra, OTHER_MODS / step.options["mod"])
     elif step.kind == "resume-refused":
         command = resume_refused_command(package, output, infra, Path("<runs>") / step.deps[0] / "auto_save/<autosave>",
                                          Path("<runs>") / (step.name + "-other-mod"))

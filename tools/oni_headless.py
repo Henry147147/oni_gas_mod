@@ -80,10 +80,10 @@ TIMEOUT_LIMIT, LONG_RUN_TIMEOUT_LIMIT = 7200, 48 * 3600
 RELEASE_RUN_FRAME_LIMIT, RELEASE_RUN_TIMEOUT_LIMIT = 3100000, 14 * 24 * 3600
 RELEASE_RUN_MODES = ("colony-owner", "colony-owner-load", "colony-vanilla")
 # Scenarios that also run under ONI's own simulation, as their reference.
-VANILLA_SCENARIOS = ("spaced-out-reactor-meltdown", "natural-sublimation", "vent-duty", "message-edges", "germ-cleaner", "every-rocket-building", "every-living-1", "every-living-2", "every-living-3", "every-building", "every-building-1", "every-building-2", "every-building-3", "every-building-4")
+VANILLA_SCENARIOS = ("spaced-out-reactor-meltdown", "natural-sublimation", "vent-duty", "message-edges", "germ-cleaner", "rephysicalized", "every-rocket-building", "every-living-1", "every-living-2", "every-living-3", "every-building", "every-building-1", "every-building-2", "every-building-3", "every-building-4")
 TELEMETRY_INTERVAL_DEFAULT, TELEMETRY_INTERVAL_LIMITS = 300, (10, 10000)
 SCENARIOS = ("activity-lifecycle", "spaced-out-worlds", "spaced-out-rocket", "spaced-out-rocket-ports", "spaced-out-input-flush", "spaced-out-rocket-retire", "spaced-out-warp-ports", "spaced-out-rocket-flight", "spaced-out-cargo-gas", "spaced-out-cargo-liquid", "spaced-out-rocket-abandon", "spaced-out-critters", "spaced-out-plants", "spaced-out-radiation", "spaced-out-hep", "spaced-out-reactor", "spaced-out-reactor-meltdown", "spaced-out-engine-exhaust", "spaced-out-sublimation-station", "spaced-out-centrifuge", "spaced-out-sludge-press", "spaced-out-landers", "spaced-out-poi-harvest", "spaced-out-rail-gun", "spaced-out-comets-geysers", "spaced-out-vacuum-pocket", "spaced-out-intakes", "spaced-out-dehydrator", "dlc-fluid-readers", "terrain", "heat", "phase", "freeze-melt", "deoxidizer", "playtest-ui", "playtest-diffusers", "playtest-pump-vent", "pipes", "door", "storage-options", "sublimation", "natural-sublimation", "falling", "terrain-order", "breathing", "breath-particle", "airflow", "flood-pocket", "flood-co2-corner",
-             "liquid-settling", "pool-step", "sealed-drain", "side-opening", "face-forces", "shown-liquid", "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "gas-generator", "building-emitter", "message-edges", "germ-cleaner", "every-rocket-building", "every-living-1", "every-living-2", "every-living-3", "every-building", "every-building-1", "every-building-2", "every-building-3", "every-building-4", "germs", "puft",
+             "liquid-settling", "pool-step", "sealed-drain", "side-opening", "face-forces", "shown-liquid", "electrolysis", "vent-overpressure", "space-heater", "bottle-emptier", "gas-generator", "building-emitter", "message-edges", "germ-cleaner", "rephysicalized", "every-rocket-building", "every-living-1", "every-living-2", "every-living-3", "every-building", "every-building-1", "every-building-2", "every-building-3", "every-building-4", "germs", "puft",
              "plant", "wheezewort", "life-support", "mask-station", "polymer-press", "oxyfern", "debris-heat", "building-melt", "byproduct-merge", "geyser", "rocket-exhaust", "meteor", "sensor", "starting-air", "filter", "mixed-pipes", "mixed-pipe-filter", "mixed-pipe-boundary", "mixed-pipe-output", "mixed-pipe-teardown", "mixed-pipe-valves", "mixed-pipe-gas-vents", "mixed-pipe-biology", "mixed-pipe-all-germs", "mixed-pipe-save-guard", "mixed-pipe-pumps", "mixed-pipe-thermal", "mixed-pipe-cold", "windows-contact", "mixed-pipe-machines", "mixed-pipe-colony", "mixed-pipe-heat-machines", "mixed-pipe-retire", "mixed-pipe-readers", "mixed-pipe-owned-storage", "mixed-storage-transfer-heat", "mixed-storage-heat", "owned-storage-retirement", "owned-storage-active-outlet", "owned-storage-drained-save", "owned-storage-retired-save", "owned-storage-readers", "owned-storage-biology", "pipe-schedule", "pipe-body-rounding", "pipe-small-heat-save", "mixed-pipe-catalogue", "pacu", "liquid-pump", "pipe-throughput", "reservoir-mix", "vent-duty", "world-germs", "germ-oracle", "skimmer", "terrarium", "deodorizer", "rust-deoxidizer", "coal-generator", "oil-refinery", "electrolyzer-blocked", "hazards", "germ-exposure", "suit", "pitcher-pump", "storage-ledger", "fault-containment", "base", "full-colony-base", "full-colony-spacedout")
 
 
@@ -560,12 +560,13 @@ def add_extra_mods(mods: list[dict], dev: Path, after, first) -> None:
         mods.insert(position, stage_extra_mod(Path(extra).resolve(), dev, {entry["label"]["id"] for entry in mods}))
 
 
-def release_mode_error(manifest: dict, mode: str, resume: bool = False) -> str | None:
+def release_mode_error(manifest: dict, mode: str, resume: bool = False, first: bool = False) -> str | None:
     """A release writes reports only beside a validation request, which menu mode does not stage.
 
-    A resumed save (--resume-save) is judged by the game's log alone, so a release folder may run it.
+    A resumed save (--resume-save) and a mod loaded first (--extra-mod-first) are judged by the game's
+    log alone, so a release folder may run them.
     """
-    if is_distribution_package(manifest) and mode == "menu" and not resume:
+    if is_distribution_package(manifest) and mode == "menu" and not resume and not first:
         return "A release folder runs in colony modes: only their validation request makes it report beside the mod."
     return None
 
@@ -669,6 +670,44 @@ def resume_preferences(save: Path) -> str:
     before a restart that changes content); ResumeGame is one of the two load entries the mod guards.
     """
     return "strings:\n  AutoResumeSaveFile: " + json.dumps(str(save)) + "\nints: {}\nfloats: {}\n"
+
+
+VERIFIED_MARKER = "[Mixed Atmospheres] Game build "
+STARTED_MARKER = "[Mixed Atmospheres] Integration probe completed."
+NOT_ACTIVE_MARKER = "[Mixed Atmospheres] Not active on game build "
+OTHER_MOD_PATCHES = re.compile(r"(?:\d+ game methods the mod uses carry other mods'|One game method the mod uses carries another mod's) Harmony patch")
+
+
+def other_mod_patches(log: str) -> list[str]:
+    """The game methods the mod runs beside other mods' patches on, as its verified line lists them in Player.log."""
+    lines = log.splitlines()
+    for index, line in enumerate(lines):
+        if VERIFIED_MARKER in line and OTHER_MOD_PATCHES.search(line):
+            listed = []
+            for following in lines[index + 1:]:
+                if not following.startswith("  ") or " <- " not in following:
+                    break
+                listed.append(following.strip())
+            return listed
+    return []
+
+
+def classify_release_menu(log: str, timed_out: bool = False, identifiers: tuple[str, ...] = ()) -> tuple[str, int]:
+    """A release folder at the main menu with another mod loaded first (--extra-mod-first): judged by the log.
+
+    It passes when the mod started (its probe completed) and nothing it logged is a failure.
+    """
+    if steam_blocked(log):
+        return "blocked-steam-authentication", 3
+    if MAIN_MENU_MARKER not in log:
+        return "timeout" if timed_out else "failed-before-main-menu", 2
+    if NOT_ACTIVE_MARKER in log:
+        return "failed-menu-not-active", 2
+    if mod_failure_lines(log, identifiers):
+        return "failed-mod-log-errors", 2
+    if STARTED_MARKER not in log:
+        return "failed-menu-not-active", 2
+    return "passed-menu-active", 0
 
 
 def classify_resume(log: str, timed_out: bool = False) -> tuple[str, int]:
@@ -1117,7 +1156,10 @@ def playtest(args, state: Path, session: dict) -> int:
         raise ValueError("--gpu-display and --private-display are alternatives.")
     package = args.package.resolve()
     manifest = verify_package(package)
-    if release_mode_error(manifest, args.mode, resume_save is not None):
+    first_mods = getattr(args, "extra_mod_first", None)
+    first_mods = first_mods if isinstance(first_mods, (list, tuple)) and first_mods else None
+    release_menu = is_distribution_package(manifest) and args.mode == "menu" and resume_save is None and first_mods is not None
+    if release_mode_error(manifest, args.mode, resume_save is not None, first_mods is not None):
         raise ValueError(release_mode_error(manifest, args.mode))
     if args.mode in ("native-observer", "colony-owner", "colony-owner-load", "colony-owner-inactive", "colony-vanilla", "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain") and not manifest.get("native_observer_enabled", False):
         raise ValueError("Native integration modes require a package built with --native-observer")
@@ -1242,7 +1284,8 @@ def playtest(args, state: Path, session: dict) -> int:
                     # exception and stack lines reach Player.log. A resumed save is
                     # given the whole wait unless the mod refuses it sooner.
                     menu_seen = time.monotonic() if menu_seen is None else menu_seen
-                    if (RESUME_REFUSED_MARKER in log if resume_fixture else contract_export(log)) or time.monotonic() - menu_seen >= MENU_EXPORT_WAIT_SECONDS:
+                    # A release folder exports nothing; the menu is the end of its run.
+                    if (RESUME_REFUSED_MARKER in log if resume_fixture else release_menu or contract_export(log)) or time.monotonic() - menu_seen >= MENU_EXPORT_WAIT_SECONDS:
                         time.sleep(MENU_SETTLE_SECONDS)
                         break
                 if watch is not None:
@@ -1286,6 +1329,8 @@ def playtest(args, state: Path, session: dict) -> int:
                                     expected_refusals=expected_refusals(args))
             if resume_fixture:
                 status, code = classify_resume(log, timed_out)
+            elif release_menu:
+                status, code = classify_release_menu(log, timed_out, (mod_id,))
             final_owner_report = limit_report
             if stopped_for_limit or args.mode in ("colony-owner", "colony-owner-load"):
                 try: final_owner_report = read_json(colony_file.parent / "colony-owner.json")
@@ -1372,7 +1417,7 @@ def playtest(args, state: Path, session: dict) -> int:
                 "authoritative_colony_simulation_ready": False, "full_mod_completion_verified": False,
                 "integration_probe": probe, "colony_report": report, "package_manifest": manifest,
                 # Verified game methods that carry other mods' patches, which the mod runs beside (--extra-mod-first).
-                "other_mod_patches": probe.get("GameContractOtherModPatches") if isinstance(probe, dict) else None,
+                "other_mod_patches": probe.get("GameContractOtherModPatches") if isinstance(probe, dict) else other_mod_patches(log),
                 "colony_owner": final_owner_report,
                 "native_backend_observation": observer_report,
                 "native_backend_observer_passed": observer_ok,

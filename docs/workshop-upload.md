@@ -64,6 +64,17 @@ while its acceptance run was still in progress; [its
 result](playtest-1.13.3.md#staged-package)). 1.13.7 was staged and never
 uploaded; 1.13.8 contains it. Add a line for each later upload.
 
+Other mods that tests load beside this one come from the Workshop the same way
+and stay out of git:
+
+```sh
+python3 tools/workshop.py fetch-mod 3609531831   # Rephysicalized -> local/other-mods/src/Rephysicalized
+```
+
+`fetch-mod` reads the item's public record, keeps the published ZIP in
+`local/other-mods/download` and unpacks it into a new folder under
+`local/other-mods/src` (no entry may leave that folder). It needs no sign-in.
+
 ## Uploading a version
 
 1. **Stage the release folder**: an unmarked `tools/package_release.py` package

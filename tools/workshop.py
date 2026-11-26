@@ -11,6 +11,9 @@
   upload     Replace the published file with a release folder. A dry run
              unless --execute is given with the version and the user's
              authorization.
+  fetch-mod  Download another mod's published Workshop file (e.g. 3609531831,
+             Rephysicalized) into local/other-mods, for the tests that load
+             it beside this one. Third-party mods never enter git.
 
 The item is a legacy single-file item: ONI build 744825 reads a Workshop mod
 only as one ZIP file, so the folder form that steamcmd's workshop_build_item
@@ -215,6 +218,55 @@ def inspect_published(archive_path: Path) -> dict:
             "kind": manifest.get("kind"), "release_ready": manifest.get("release_ready"),
             "supported_builds": manifest.get("supported_builds"), "files": files, "problems": problems,
             "sha256": sha256(archive_path.read_bytes()), "bytes": archive_path.stat().st_size}
+
+
+OTHER_MODS = ROOT / "local/other-mods"
+
+
+def safe_member(name: str) -> str | None:
+    """A ZIP entry's path with forward slashes, or None when it would leave its folder."""
+    path = name.replace("\\", "/")
+    parts = [part for part in path.split("/") if part not in ("", ".")]
+    if not parts or path.startswith("/") or ".." in parts or ":" in parts[0]:
+        return None
+    return "/".join(parts)
+
+
+def extract_mod(archive_path: Path, destination: Path) -> int:
+    """Unpack a published mod ZIP (untrusted: bounded, no path leaves ``destination``) into a new folder."""
+    with zipfile.ZipFile(archive_path) as archive:
+        entries = [entry for entry in archive.infolist() if not entry.filename.endswith(("/", "\\"))]
+        if len(entries) > MAX_ENTRIES or sum(entry.file_size for entry in entries) > MAX_UNPACKED_BYTES:
+            raise Refused("The published ZIP is larger than a mod should be")
+        names = [safe_member(entry.filename) for entry in entries]
+        if any(name is None for name in names) or len(set(names)) != len(names):
+            raise Refused("The published ZIP has entries outside its folder or twice")
+        if "mod.yaml" not in names:
+            raise Refused("The published ZIP holds no mod.yaml at its top")
+        destination.mkdir(parents=True)
+        for entry, name in zip(entries, names):
+            target = destination / name
+            target.parent.mkdir(parents=True, exist_ok=True)
+            with archive.open(entry) as source, target.open("xb") as output:
+                output.write(source.read(MAX_UNPACKED_BYTES + 1))
+        return len(entries)
+
+
+def command_fetch_mod(args) -> int:
+    record = published_record(args.mod_item)
+    name = args.name or re.sub(r"[^A-Za-z0-9_.-]", "", str(record.get("title") or "")) or str(args.mod_item)
+    folder = OTHER_MODS / "src" / name
+    if folder.exists():
+        raise Refused(f"{folder} exists; remove it first to fetch item {args.mod_item} again")
+    downloads = OTHER_MODS / "download"
+    downloads.mkdir(parents=True, exist_ok=True)
+    archive = downloads / f"{args.mod_item}-{record.get('time_updated')}.zip"
+    if not archive.exists():
+        download_published(record, archive)
+    count = extract_mod(archive, folder)
+    print(f"{record.get('title')} (Workshop item {args.mod_item}, updated {utc(int(record.get('time_updated') or 0))}): "
+          f"{count} files in {folder}")
+    return 0
 
 
 def published_state(item: int, folder: Path) -> dict:
@@ -654,10 +706,13 @@ def main(argv: list[str] | None = None) -> int:
     upload.add_argument("--record", type=Path, help="Folder for the upload file and record (default: artifacts/workshop/...)")
     upload.add_argument("--verify-seconds", type=int, default=900, help="How long to wait for Steam's public record to change")
     steam_options(upload)
+    fetch = commands.add_parser("fetch-mod", help="Download another mod's Workshop file into local/other-mods")
+    fetch.add_argument("mod_item", type=int, help="Its Workshop item, e.g. 3609531831 (Rephysicalized)")
+    fetch.add_argument("--name", help="Folder name under local/other-mods/src (default: its title)")
     args = parser.parse_args(argv)
     try:
         return {"status": command_status, "build": command_build, "preflight": command_preflight,
-                "upload": command_upload}[args.command](args)
+                "upload": command_upload, "fetch-mod": command_fetch_mod}[args.command](args)
     except Refused as refusal:
         print(f"REFUSED: {refusal}", file=sys.stderr)
         return 2
