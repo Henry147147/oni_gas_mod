@@ -9,7 +9,9 @@ loadable content folder under `archived_versions/<build>/`. ONI selects the
 highest eligible `minimumSupportedBuild`. The selected adapter checks its
 compiled game build, the build in its platform contract, the running game,
 and the existing managed dependencies and native profiles. A build between
-two registered numbers or newer than the last one is refused. The mod ID,
+two registered numbers is refused. From 1.13.12, a build newer than the last one is
+accepted only when nothing the mod uses changed apart from the build number
+([tolerated newer builds](#tolerated-newer-builds)). The mod ID,
 settings directory and save format are shared across the three builds.
 Mixture saves can move forward across these builds under the existing
 catalogue and format checks. Saves from a newer game still require that
@@ -250,7 +252,8 @@ differences; [1.10.2](playtest-1.10.2.md) is the retarget. What it showed:
   is then refused by ONI's native loader, as without the mod.
   Treating the build number as a wildcard in the contract (and the constant
   of `AppVersion::GetRevision` in the Windows image identity) would let such
-  a hotfix through; that changes what "verified" means and is a user decision.
+  a hotfix through. The user decided this on 2026-11-26:
+  [tolerated newer builds](#tolerated-newer-builds).
 - **Native.** Linux: the same file again. Windows: 30 bytes differ from
   763796, the stamps and the constant of `AppVersion::GetRevision`; the
   profile was carried with `--accept-indirect` (the same six `SIM_*` entry
@@ -309,6 +312,173 @@ as a fourth row of the registry. What it showed:
   previous builds get `-<build>` (`mod_identity.reference_installation`):
   `OxygenNotIncluded-linux` and `OxygenNotIncluded` are 764961,
   `…-linux-764025` and `…-764025` the previous build.
+
+## Tolerated newer builds
+
+User decision, 2026-11-26: "please also make the mod not fail on update if
+nothing the mod touches is changed. work on this ASAP and prioritize it over
+the new features." Until then every game build turned the published mod off,
+because the game compiles its build number into code the mod patches (see
+[764025](#build-764025-2026-11-20)) and, on Windows, into its `SimDLL`.
+
+### Which adapter checks a newer build
+
+ONI's `KMod.Mod` collects the root content and every `archived_versions/*`
+folder, keeps those whose DLC and `APIVersion` fit, and loads the one with the
+highest `minimumSupportedBuild` not above the running build. The same code
+runs on Windows and Linux, and every package carries the same archives on
+both. The root's `minimumSupportedBuild` is the newest supported build, so a
+newer game always loads the root adapter, and a build between two supported
+ones loads the archived adapter below it. `ModAdmission.AtPackageRoot` tells
+the two apart by the folder (`archived_versions/<build>/` is ONI's own
+layout), and `ModAdmission.ChecksNewerBuild` allows the check only for the
+root and only for a running build above the contract's. Older and in-between
+builds stay refused by their number, as before.
+
+### Managed: the build-number reading
+
+- **What the contract stores.** `tools/GameContract generate` computes every
+  entry a second time with the contract's own build number read as a
+  placeholder (`GameContractCanon.BuildMark`). The placeholder replaces an int32
+  operand of `ldc.i4`/`ldc.i4.s` equal to the build number, an integer constant
+  equal to it (enum members and `const` fields, any integer type), and the
+  number as a whole word (no digit right before or after) in a string literal or
+  string constant. Branch offsets, other constants, locals, clauses, signatures
+  and resolved tokens are left as they are. When this reading differs from the
+  exact form, that is, when the number occurs in the entry, it is written as the
+  entry's `BuildMasked` value (hashed like `Value`). The schema keeps version 1:
+  the field is optional, so contracts written before it load and simply forgive
+  nothing. On 763796, 764025 and 764961 the same seven entries carry it:
+  `Game.Save`, `SaveGame.GetSaveHeader` and `LoadScreen.DoLoad(string)` as patch
+  targets, `LoadScreen.DoLoad(string)` as a member, and the named lookups of
+  `Game.Save`, `LoadScreen.DoLoad` and `KleiVersion.ChangeList`.
+- **The check.** The exact comparison runs first and is unchanged. Only for an
+  entry that differs, and only on a newer build checked by the root, the game's
+  form is computed again with the running build number read as the placeholder.
+  The difference is forgiven when the entry has a `BuildMasked` value and the
+  two readings are equal. An entry without one, a changed key, a missing member
+  or patch target and a new patch target are never forgiven. This is stricter
+  than masking at run time alone: an entry can be forgiven only if the
+  contract's own build number occurred in it when it was written. Since the
+  contract side masks the contract's build and the game side the running build,
+  a game that still holds the old number where the contract had the build
+  number differs too. A method patched by another mod is compared without the
+  patch mark in both readings, so such a method is still told apart from a
+  changed one.
+- **Accepted.** Player.log, one entry:
+
+  ```text
+  [Mixed Atmospheres] Game build 764025 is newer than the build this version was checked against (763796); every part of the game the mod uses is unchanged (3020 managed dependencies checked in 512 ms); 7 entries differ only by the build number:
+    static LoadScreen::DoLoad(System.String)System.Void
+    named Game::Save
+    ...
+  ```
+
+  No main-menu notice, because nothing needs the player's attention.
+- **Refused.** The refusal keeps `UnsupportedBuild`'s kind, load text and
+  remedy (a Mixed Atmospheres update). Its notice also names the first three
+  changed parts by short name (`ModAdmission.NewerBuildChanged`):
+
+  ```text
+  Mixed Atmospheres 1.13.10 does not support this version of Oxygen Not Included (the game is build 764961; this copy of the mod is for build 764025). The game update changed one part of the game the mod uses:
+    - SelectToolHoverTextCard.UpdateHoverElements
+
+  An update of Mixed Atmospheres is needed. ...
+  ```
+
+  Player.log lists every difference and every forgiven entry. If all remaining
+  differences are other mods' patches, the [other-mods](#other-mods) notice is
+  shown instead. If the managed side is accepted but the `SimDLL` is not a
+  verified or carried image, the same update notice names the native
+  simulator.
+
+### Native: the revision-masked identity
+
+The Windows images differ as follows after the normalisation of
+[How a build is verified](#how-a-build-is-verified):
+
+| Images | Differing bytes after normalisation |
+| --- | --- |
+| 744825 to 763796 | header and toolchain (Rich) stamps at file offsets 60 to 784 (a new linker), and the revision constant |
+| 763796 to 764025 | only the revision constant: file offset 0x4ED31 to 0x4ED32 (RVA 0x4F931, the low two bytes of the immediate) |
+| 764025 to 764961 | the revision constant (same bytes), the security data-directory entry (file offset 0x1B8, 8 bytes) and the 15,696-byte Authenticode certificate appended at file offset 1,176,576. Klei signs the files since 764961. |
+
+The constant is the immediate of `AppVersion::GetRevision` (PDB public
+`?GetRevision@AppVersion@@YA?BIXZ`, procedure of 6 bytes at RVA 0x4F930,
+`mov eax, imm32; ret`). It equals the game build: 744825, 763796, 764025 and
+764961 (0x000BAC21).
+
+- **What a profile stores.** A Windows profile carries `revision_site` (symbol,
+  RVA 0x4F931, 4 bytes, the value) and `revision_masked_identity`.
+  `tools/oni_hook_profiles.py revision --windows-game DIR` records them for the
+  verified profile of an installation, and `inspect` and `retarget_oni.py`
+  write them for new profiles. The site must be in an executable section and
+  outside every hook fingerprint, binding and global. Profiles with one masked
+  identity must agree in their site, hooks, bindings and globals.
+- **The identity.** `revision_masked_identity` in `tools/oni_hook_profiles.py`
+  and `revision_masked_image_identity` in `native/src/oni_image_identity.hpp`
+  start from the normalised image. They also zero the 4 bytes at the site,
+  zero the security directory entry, and cut off the certificate data, which
+  must be the last bytes of the file, beyond every section. Every other code,
+  data and header byte stays covered. An unsigned image and its signed twin
+  therefore compare equal. A one-byte change anywhere else, including the
+  `mov` and `ret` around the constant, changes the identity.
+- **Selection.** `verify_files` takes a profile whose exact identity matches
+  ("verified"). Otherwise it takes the newest profile whose revision-masked
+  identity matches ("carried"). Hooks, RVAs, layouts and in-memory fingerprints
+  are then those of the verified image. `ma_oni_selected_profile` returns how
+  the profile was chosen, and the mod writes it to Player.log, for example:
+  `Game SimDLL carried from the verified image of build 764025 (identity
+  a8a354e443d5f558; it differs only in the revision constant at RVA 0x4f931, 4
+  bytes, and the Authenticode signature; revision-masked identity
+  1f266c5b6c9fb87c)`. No build number is compared on the native path, managed
+  or native. The build reported by the observer is the selected profile's.
+- **Result.** 763796, 764025 and 764961 share the revision-masked identity
+  `1f266c5b…`, and 744825 has its own (`0c9fa4e3…`). The Linux `libSimDLL.so`
+  is byte for byte the same file in 744825, 763796, 764025 and 764961, so it
+  matches its verified profile without any of this. It gets no revision site.
+
+### What else reads the build number
+
+| Place | On a tolerated build |
+| --- | --- |
+| `GameBuildCheck.CompiledBuild` | Still must equal the contract's build (the package's own consistency). |
+| `RequireVerifiedPatches` | Unchanged: the set of patched originals is compared by key, and keys are never masked. |
+| `RefusedBuildLoadGuard` | On a refused newer build, its two targets are accepted when equal to the contract apart from the build number, so a mixture save gets the notice instead of reaching the game's loader. |
+| Save envelope (`ColonySaveEnvelope.Parse(..., FirstSupportedBuild, RunningBuild, ...)`, `ColonyOwnerPersistence`) | Unchanged. A save records the running build, and saves from 744825 up to the running build load. A save written on the newer build is refused by an older game, as before. |
+| `OwnedReservoir*` header pins (`744825` in `OwnedReservoirLoadHeaderV1`, `OwnedReservoirSavedLayout`, `OwnedReservoirLoadBoundary`) | Development and rejection-only paths, unchanged. The load guard's save reader (`InspectLayoutHeader`) accepts any build from 744825. |
+| `ColonyPipeBiology` scheduling guard | Its raw-IL signature moves with every rebuilt assembly (764961: new on both platforms), which would turn the all-identity pipe biology off. On a tolerated build it also accepts the token-independent canonical form of the same five bodies (`CanonicalSchedulingSignature`, without the inlining mark). That form is the same on 744825, 763796, 764025 and 764961 on both platforms, and `GameContract verify`/`controls` print it for every installation. |
+| `IntegrationProbe`, `ColonyRuntimeValidation`, `NativeContractCapture`, `RuntimeCoverageCapture` | Development reports only. They record the compiled and the running build. |
+| `mod_info.yaml` `minimumSupportedBuild` | Unchanged. The root's value is the newest supported build. |
+
+### Controls
+
+- **Managed, real builds** (`tools/tests/test_newer_build_tolerance.py`). The
+  current source is compiled against 763796 only, and its contract is written
+  against the 763796 Windows and Linux games. Against 764025 it is accepted on
+  both platforms with exactly the seven entries above forgiven. Against 764961
+  it is refused on both, naming
+  `SelectToolHoverTextCard.UpdateHoverElements`. The same results come from
+  the game's own Mono (`tools/game_mono_contract_check.py --game <764025 or
+  764961 Linux> --mod <that folder>`), which prints the notice. Each control
+  skips when its game copy is absent.
+- **Managed, synthetic** (`GameContract controls`, any one installation). With
+  the contract read as an earlier build's: unchanged, nothing is forgiven;
+  every entry with a reading given a wrong exact value, each is forgiven; one
+  reading changed too, that entry is refused by name; a changed entry without
+  a reading is refused; for the contract's own build, nothing is forgiven.
+- **Unit** (`tools/DistributionTests`). The substitution (whole words, every
+  occurrence, exactness, escaping), the root and in-between decision, the
+  refusal notice and the Player.log text.
+- **Native** (`native_oni_image_identity`, `test_oni_hook_profiles.py`). Shared
+  PE fixtures: another revision constant, and a signed twin, give the same
+  masked identity, while the exact identity sees both. A code byte elsewhere,
+  the instruction around the constant, or a site one byte off change it. A
+  site outside executable code or the sections, an empty site, a certificate
+  that does not end the file, and an ELF image are refused. With the real
+  images, 763796, 764025 and 764961 share the recorded masked identity, and
+  764961 with one flipped code byte does not. Every Linux copy matches the
+  verified Linux profile.
 
 ## Other mods
 
@@ -380,7 +550,9 @@ report it.
 | Situation | Behaviour |
 | --- | --- |
 | Not Windows x64 or Linux x64 (macOS, 32-bit) | Nothing patched; main-menu notice; ONI unchanged |
-| The game is a build this copy has no adapter for | Nothing patched except the verified load guard; notice names both builds and says a Mixed Atmospheres update is needed (or, for an older game, a game update) |
+| The game is newer than every build this copy supports, and everything the mod uses is unchanged apart from the build number | Accepted; one Player.log entry names both builds and lists the forgiven entries; no notice ([tolerated newer builds](#tolerated-newer-builds)) |
+| The game is newer than every build this copy supports, and something the mod uses changed | Nothing patched except the load guard (verified, or equal to the verified code apart from the build number); notice names both builds, says a Mixed Atmospheres update is needed and lists the first changed parts by short name |
+| The game is older than this copy supports, or between two supported builds | Nothing patched except the verified load guard; notice names both builds and says a Mixed Atmospheres update is needed (or, for an older game, a game update) |
 | Supported build, [other mods patched](#other-mods) methods the mod uses | The same; notice says neither game nor mod is out of date, names the mods, asks to disable them or report the conflict |
 | Supported build number, but the game's code or `SimDLL` differs | The same; notice lists the first parts by short name, asks to disable other mods and verify the game's files, or to report it |
 | The mod's own files do not belong together (contract missing or of another build, native library of another build) | The same; notice asks to reinstall the mod |

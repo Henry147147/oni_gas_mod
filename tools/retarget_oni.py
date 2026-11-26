@@ -244,6 +244,15 @@ def native_report(platform: str, new_root: Path, reference_root: Path | None, va
     if match is not None:
         report["status"] = "unchanged: a verified profile already covers this image"
         return report
+    carried = profiles.carried_profile(known, data)
+    if carried is not None:
+        # docs/game-update-resilience.md#tolerated-newer-builds: the installed
+        # package already accepts this image; a new profile is still written
+        # when the build is registered.
+        report["carried_from"] = carried.get("oni_build", value["oni_build"])
+        report["revision_masked_identity"] = carried["revision_masked_identity"]
+        report["note"] = (f"carried: equal to the verified image of build {report['carried_from']} apart from the revision constant "
+                          f"at {carried['revision_site']['rva']:#x} and the Authenticode signature")
     if reference_root is None or not profiles.sim_image(reference_root, platform).is_file():
         report["status"] = "needs review: no reference installation to compare function bodies"
         report["needs_review"].append("Provide the reference installation (--reference-" + platform.split("-")[0] + ")")
@@ -272,6 +281,9 @@ def native_report(platform: str, new_root: Path, reference_root: Path | None, va
     candidate.update({"native_identity": identity, "native_sha256": sha(data), "native_bytes": len(data)})
     if platform == "windows-x64":
         candidate["symbols"] = evidence  # the new PDB's GUID and age
+        for key in ("revision_site", "revision_masked_identity"):
+            candidate.pop(key, None)
+        candidate.update(profiles.revision_fields(data, symbols))
     if (new_root / "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll").is_file():
         candidate["assembly_sha256"] = sha((new_root / "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll").read_bytes())
     for group in ("hooks", "publication_bindings"):
@@ -427,6 +439,8 @@ def main() -> int:
     lines = ["# Retarget report", ""]
     for platform, native in report["native"].items():
         lines.append(f"- {platform} native: {native['status']} (identity {native['normalized_identity'][:16]})")
+        if native.get("note"):
+            lines.append(f"- {platform} native: {native['note']} (revision-masked identity {native['revision_masked_identity'][:16]})")
         if native.get("accepted_indirect"):
             lines.append(f"- {platform} native: indirect branches accepted after review in " + ", ".join(native["accepted_indirect"]))
     for platform, managed in report["managed"].items():

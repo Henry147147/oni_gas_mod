@@ -90,7 +90,10 @@ PUBLICATION_SPECS = (
      '_Z21PrepareGameDataUpdateRK8GameData', 'pointer(const-game*)'),
 )
 
-def normalized_identity(data: bytes) -> str:
+REVISION_SYMBOL = "?GetRevision@AppVersion@@YA?BIXZ"
+
+
+def normalized_identity(data: bytes, _bytes: list | None = None) -> str:
     """SHA-256 of a native image with only the linker's build stamps zeroed.
 
     PE: COFF and export/resource directory timestamps, the optional-header
@@ -169,7 +172,90 @@ def normalized_identity(data: bytes) -> str:
                 note = descriptor + ((descriptor_size + 3) & ~3)
     else:
         raise ValueError("Cannot normalise native image: neither PE nor ELF64")
+    if _bytes is not None:
+        _bytes.append(image)
     return sha(bytes(image))
+
+
+def revision_masked_identity(data: bytes, rva: int, size: int) -> str:
+    """The normalised identity of a PE image with, in addition, the `size`
+    bytes of the revision constant at `rva` zeroed and the Authenticode
+    signature left out (its data-directory entry zeroed, the certificate data,
+    which must end the file, cut off). The site is a verified profile's
+    `revision_site`: the immediate that AppVersion::GetRevision returns. An
+    image whose revision-masked identity equals a verified profile's is that
+    image apart from the game's revision number, so the profile is carried
+    (docs/game-update-resilience.md#tolerated-newer-builds). Mirrored exactly
+    by native/src/oni_image_identity.hpp revision_masked_image_identity."""
+    def require(condition: bool, reason: str) -> None:
+        if not condition:
+            raise ValueError("Cannot normalise native image: " + reason)
+
+    def u(at: int, width: int) -> int:
+        require(0 <= at and at + width <= len(data), "truncated field")
+        return int.from_bytes(data[at:at + width], "little")
+
+    require(data[:2] == b"MZ", "a revision-masked identity needs a PE image")
+    require(0 < size <= 8, "revision constant size")
+    pe = u(60, 4)
+    require(u(pe, 4) == 0x00004550, "missing PE signature")
+    count, optional_size, optional = u(pe + 6, 2), u(pe + 20, 2), pe + 24
+    require(u(optional, 2) == 0x20B, "a revision-masked identity needs a PE32+ image")
+    directories, directory_count = optional + 112, u(optional + 108, 4)
+    site, sections_end = None, 0
+    for index in range(count):
+        at = optional + optional_size + 40 * index
+        virtual_size, address, raw_size, raw, flags = u(at + 8, 4), u(at + 12, 4), u(at + 16, 4), u(at + 20, 4), u(at + 36, 4)
+        if raw_size:
+            sections_end = max(sections_end, raw + raw_size)
+        if address <= rva and rva + size <= address + min(virtual_size, raw_size):
+            require(bool(flags & 0x20000000), "the revision constant is not in executable code")
+            site = raw + rva - address
+    require(site is not None, "the revision constant is outside the file-backed sections")
+    certificate, certificate_size = (u(directories + 32, 4), u(directories + 36, 4)) if 4 < directory_count else (0, 0)
+    captured = []
+    normalized_identity(data, _bytes=captured)
+    image = captured[0]
+    image[site:site + size] = bytes(size)
+    if 4 < directory_count:
+        image[directories + 32:directories + 40] = bytes(8)
+    if certificate_size:
+        require(certificate >= sections_end and certificate + certificate_size == len(data), "the certificate table is not the end of the file")
+        del image[certificate:]
+    return sha(bytes(image))
+
+
+def carried_profile(known: list, data: bytes) -> dict | None:
+    """The newest verified profile that this image differs from only in the
+    revision constant and the Authenticode signature, as the native library
+    selects it; None when there is none."""
+    found = None
+    for profile in known:
+        site = profile.get("revision_site")
+        if not site:
+            continue
+        try:
+            masked = revision_masked_identity(data, site["rva"], site["bytes"])
+        except ValueError:
+            continue
+        if masked == profile["revision_masked_identity"] and (found is None or profile.get("oni_build", 744825) > found.get("oni_build", 744825)):
+            found = profile
+    return found
+
+
+def revision_site(data: bytes, symbols: dict) -> dict | None:
+    """Where a Windows SimDLL keeps its revision number: the 4-byte
+    immediate of AppVersion::GetRevision, `mov eax, imm32; ret` (B8 imm32 C3),
+    located by the image's PDB publics. None when the function is absent or
+    has another form: such an image is never carried."""
+    rva = symbols.get(REVISION_SYMBOL)
+    if rva is None:
+        return None
+    offset = file_offset(pe_sections(data), rva, 6, executable=True)
+    code = data[offset:offset + 6]
+    if code[0] != 0xB8 or code[5] != 0xC3:
+        return None
+    return {"symbol": REVISION_SYMBOL, "rva": rva + 1, "bytes": 4, "value": int.from_bytes(code[1:5], "little")}
 
 
 def signature_for(signature,platform):
@@ -376,7 +462,34 @@ def inspect(game: Path, platform: str, utility: str) -> dict:
             "native_sha256": sha(data), "assembly_sha256": sha((game / "OxygenNotIncluded_Data/Managed/Assembly-CSharp.dll").read_bytes()),
             "native_bytes": len(data), "symbols": evidence, "globals": globals_, "hooks": hooks,
             "publication_bindings": publication_bindings,
-            **({"trampoline_storage": storage} if storage else {})}
+            **({"trampoline_storage": storage} if storage else {}),
+            **(revision_fields(data, symbols) if platform == "windows-x64" else {})}
+
+
+def revision_fields(data: bytes, symbols: dict) -> dict:
+    """A Windows profile's revision site and revision-masked identity, or
+    nothing when the image has no recognisable AppVersion::GetRevision."""
+    site = revision_site(data, symbols)
+    if site is None:
+        return {}
+    return {"revision_site": site, "revision_masked_identity": revision_masked_identity(data, site["rva"], site["bytes"])}
+
+
+def add_revision_fields(value: dict, game: Path, utility: str) -> dict:
+    """Record the revision site of the verified Windows profile whose image
+    `game` holds (its PDB names AppVersion::GetRevision)."""
+    image = sim_image(game, "windows-x64")
+    data = image.read_bytes()
+    identity = normalized_identity(data)
+    profile = next((p for p in value["profiles"] if p["platform"] == "windows-x64" and p["native_identity"] == identity), None)
+    if profile is None:
+        raise ValueError(f"{image} is not the image of a verified Windows profile")
+    symbols, _, _ = windows_symbols(data, image.with_suffix(".pdb"), utility)
+    fields = revision_fields(data, symbols)
+    if not fields:
+        raise ValueError(f"{image} has no AppVersion::GetRevision of the form mov eax, imm32; ret")
+    profile.update(fields)
+    return profile
 
 
 PLATFORMS = ("windows-x64", "linux-x64")
@@ -427,6 +540,7 @@ def validate(value: dict) -> None:
         for digest in (profile["native_sha256"], profile["assembly_sha256"], *(h["fingerprint_sha256"] for h in profile["hooks"])):
             if not re.fullmatch("[0-9a-f]{64}", digest):
                 raise ValueError("Invalid SHA256 fingerprint")
+        validate_revision(profile, publication)
         if [g["name"] for g in profile["globals"]] != ["gSim", "gSimData"] or any(g["rva"] <= 0 for g in profile["globals"]):
             raise ValueError("Native lifecycle globals missing")
         if profile["platform"] == "linux-x64":
@@ -450,6 +564,39 @@ def validate(value: dict) -> None:
                 any(first < h["rva"] + 32 and h["rva"] < first + size for h in [*profile["hooks"], *publication]) or
                 any(first < g["rva"] + 8 and g["rva"] < first + size for g in profile["globals"])):
                 raise ValueError("Invalid Linux trampoline storage bounds or fingerprint")
+    validate_carried(value)
+
+
+def validate_revision(profile: dict, publication: list) -> None:
+    """A carried profile's revision site (docs/game-update-resilience.md#tolerated-newer-builds):
+    Windows only, the 4-byte immediate of AppVersion::GetRevision, outside
+    every hook fingerprint, binding and global, with its masked identity."""
+    if "revision_site" not in profile and "revision_masked_identity" not in profile:
+        return
+    site, masked = profile.get("revision_site"), profile.get("revision_masked_identity")
+    if profile["platform"] != "windows-x64" or not isinstance(site, dict) or not isinstance(masked, str) or not re.fullmatch("[0-9a-f]{64}", masked):
+        raise ValueError("A revision site needs a Windows profile and its revision-masked identity")
+    if set(site) != {"symbol", "rva", "bytes", "value"} or site["symbol"] != REVISION_SYMBOL or site["bytes"] != 4 or \
+            type(site["rva"]) is not int or type(site["value"]) is not int or not 0 < site["rva"] < profile["native_bytes"]:
+        raise ValueError("Invalid revision site")
+    first, end = site["rva"], site["rva"] + site["bytes"]
+    if any(first < h["rva"] + 32 and h["rva"] < end for h in [*profile["hooks"], *publication]) or \
+            any(first < g["rva"] + 8 and g["rva"] < end for g in profile["globals"]):
+        raise ValueError("The revision site overlaps a hook, binding or global")
+
+
+def validate_carried(value: dict) -> None:
+    """Profiles that share a revision-masked identity are the same image
+    apart from the revision constant: their sites, hooks, bindings and
+    globals must agree."""
+    groups: dict = {}
+    for profile in value["profiles"]:
+        if profile.get("revision_masked_identity"):
+            groups.setdefault(profile["revision_masked_identity"], []).append(profile)
+    def shape(p): return (p["revision_site"]["rva"], p["revision_site"]["bytes"], p["hooks"], p.get("publication_bindings", []), p["globals"])
+    for group in groups.values():
+        if any(shape(p) != shape(group[0]) for p in group[1:]):
+            raise ValueError("Profiles with one revision-masked identity differ in their sites, hooks, bindings or globals")
 
 
 def header(value: dict) -> str:
@@ -473,7 +620,9 @@ def header(value: dict) -> str:
             for hook in publication:
                 lines.append(f'    {{{hook["index"]}U, {hook["rva"]}U, "{hook["fingerprint_sha256"]}"}},')
             lines.append("}};")
-            entry = (f'    {{{profile.get("oni_build", value["oni_build"])}U, "{profile["native_identity"]}", '
+            site = profile.get("revision_site")
+            revision = (f'"{profile["revision_masked_identity"]}", {site["rva"]}U, {site["bytes"]}U, ' if site else 'nullptr, 0U, 0U, ')
+            entry = (f'    {{{profile.get("oni_build", value["oni_build"])}U, "{profile["native_identity"]}", {revision}'
                      f'{profile["globals"][0]["rva"]}U, {profile["globals"][1]["rva"]}U, {name}_hooks, {name}_bindings')
             if platform == "linux-x64":
                 storage = profile["trampoline_storage"]
@@ -486,25 +635,35 @@ def header(value: dict) -> str:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("inspect", "header", "validate"))
-    parser.add_argument("--windows-game", type=Path)
+    parser.add_argument("command", choices=("inspect", "header", "validate", "revision"),
+                        help="revision: record the revision site of the verified Windows profile of each --windows-game")
+    parser.add_argument("--windows-game", type=Path, action="append")
     parser.add_argument("--linux-game", type=Path)
     parser.add_argument("--pdbutil", default="llvm-pdbutil")
     parser.add_argument("--profiles", type=Path, default=PROFILE)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
     if args.command == "inspect":
-        if not args.windows_game or not args.linux_game or not args.output:
+        if not args.windows_game or len(args.windows_game) != 1 or not args.linux_game or not args.output:
             parser.error("inspect requires both licensed game roots and --output")
         value = {"schema_version": 1, "oni_build": 744825, "steam_build_id": 24423041,
                  "scope": "Forwarding observer only; no fluid authority or complete writer coverage.",
-                 "profiles": [inspect(args.windows_game, "windows-x64", args.pdbutil), inspect(args.linux_game, "linux-x64", args.pdbutil)]}
+                 "profiles": [inspect(args.windows_game[0], "windows-x64", args.pdbutil), inspect(args.linux_game, "linux-x64", args.pdbutil)]}
         validate(value)
         args.output.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
     else:
         value = json.loads(args.profiles.read_text(encoding="utf-8"))
         validate(value)
-        if args.command == "header":
+        if args.command == "revision":
+            if not args.windows_game:
+                parser.error("revision requires --windows-game")
+            for game in args.windows_game:
+                profile = add_revision_fields(value, game, args.pdbutil)
+                print(f"{game}: build {profile.get('oni_build', value['oni_build'])}, revision site {profile['revision_site']['rva']:#x}, "
+                      f"revision-masked identity {profile['revision_masked_identity']}")
+            validate(value)
+            args.profiles.write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+        elif args.command == "header":
             if not args.output:
                 parser.error("header requires --output")
             args.output.parent.mkdir(parents=True, exist_ok=True)

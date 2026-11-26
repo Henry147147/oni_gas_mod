@@ -14,6 +14,7 @@
 namespace {
 constexpr char pe_identity[] = "46826a46eff2245d599daf8a4d07190d561347d63c188e18e265bea5c6838a25";
 constexpr char elf_identity[] = "78245165da47cdd954305d070ccdf123e9fa4721c9433930335c0147f399f623";
+constexpr char revision_masked_identity[] = "4e1ab008fb681af99af7ec5cc039c1d9c1465a65423e67beaa83c0df58d542a1";
 
 void put(std::vector<std::uint8_t>& image, std::size_t at, std::uint64_t value, unsigned size) {
     for (unsigned i = 0; i < size; ++i) image[at + i] = static_cast<std::uint8_t>(value >> (8U * i));
@@ -41,6 +42,23 @@ std::vector<std::uint8_t> pe(std::uint32_t stamp = 0x11111111U, std::uint32_t ch
     std::memcpy(image.data() + 0x380, "RSDS", 4); std::memset(image.data() + 0x384, guid, 16); put(image, 0x394, 7, 4);
     if (code >= 0) image[0x3F0] = static_cast<std::uint8_t>(code);
     return image;
+}
+// pe() with an executable .text holding `mov eax, revision; ret` at RVA
+// 0x100F, optionally signed (a 0x20-byte certificate appended); the same
+// fixture as revision_pe in tools/tests/test_oni_hook_profiles.py.
+std::vector<std::uint8_t> revision_pe(std::uint32_t revision = 0x000BA879U, bool sign = false, std::uint32_t stamp = 0x11111111U, int code = -1, bool executable = true) {
+    auto image = pe(stamp, 0x22222222U, 0x33, code);
+    if (executable) put(image, 0x188 + 36, 0x60000020U, 4);
+    image[0x20F] = 0xB8; put(image, 0x210, revision, 4); image[0x214] = 0xC3;
+    if (sign) {
+        put(image, 0x98 + 112 + 32, 0x400, 4); put(image, 0x98 + 116 + 32, 0x20, 4); put(image, 0x98 + 64, 0x5A5A5A5AU, 4);
+        for (unsigned i = 0; i < 0x20; ++i) image.push_back(static_cast<std::uint8_t>(0xA0 + i));
+    }
+    return image;
+}
+bool masked_refused(std::vector<std::uint8_t> image, std::uint64_t rva, std::uint32_t size) {
+    try { (void)ma::oni::revision_masked_image_identity(std::move(image), rva, size); return false; }
+    catch (const std::runtime_error&) { return true; }
 }
 std::vector<std::uint8_t> elf(std::uint8_t build_id = 0x44, int code = -1) {
     auto image = pattern(0x200);
@@ -79,6 +97,24 @@ int main() {
     auto elf_short = elf(); elf_short.resize(0x110);
     check(refused(elf_short), "truncated ELF note refused");
     check(refused(std::vector<std::uint8_t>{'p', 'l', 'a', 'i', 'n'}), "unknown format refused");
+    using ma::oni::revision_masked_image_identity;
+    const auto masked = revision_masked_image_identity(revision_pe(), 0x1010, 4);
+    check(masked == revision_masked_identity, "revision-masked identity matches the Python implementation");
+    check(revision_masked_image_identity(revision_pe(0x000BAC21U), 0x1010, 4) == masked, "another revision constant is masked");
+    check(revision_masked_image_identity(revision_pe(0x000BAC21U, true), 0x1010, 4) == masked, "a signed twin is masked");
+    check(revision_masked_image_identity(revision_pe(0x000BA879U, true, 0x5EED), 0x1010, 4) == masked, "stamps stay ignored");
+    check(normalized_image_identity(revision_pe(0x000BAC21U)) != normalized_image_identity(revision_pe()), "the exact identity sees the revision");
+    check(normalized_image_identity(revision_pe(0x000BA879U, true)) != normalized_image_identity(revision_pe()), "the exact identity sees the signature");
+    check(revision_masked_image_identity(revision_pe(0x000BA879U, false, 0x11111111U, 0), 0x1010, 4) != masked, "a code byte elsewhere is covered");
+    auto around = revision_pe(); around[0x214] = 0xC2;
+    check(revision_masked_image_identity(around, 0x1010, 4) != masked, "the instruction around the constant is covered");
+    check(revision_masked_image_identity(revision_pe(), 0x1011, 4) != masked, "a site one byte off masks other bytes");
+    check(masked_refused(revision_pe(0x000BA879U, false, 0x11111111U, -1, false), 0x1010, 4), "a site outside executable code refused");
+    check(masked_refused(revision_pe(), 0x3000, 4), "a site outside the sections refused");
+    check(masked_refused(revision_pe(), 0x1010, 0), "an empty site refused");
+    auto trailing = revision_pe(0x000BA879U, true); trailing.push_back(0);
+    check(masked_refused(trailing, 0x1010, 4), "a certificate that does not end the file refused");
+    check(masked_refused(elf(), 0x1010, 4), "an ELF image has no revision-masked identity");
     std::puts("native image identity: all checks passed");
     return 0;
 }

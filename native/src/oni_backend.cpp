@@ -70,8 +70,14 @@ static_assert(MA_ONI_CHUNK_HEAT + 1 == MA_ONI_HOOK_COUNT);
 struct HookProfile { std::uint32_t index; std::uintptr_t rva; const char* hash; };
 // One verified SimDLL image (docs/native-hook-profiles.json): selected by the
 // normalised identity of the game's file (docs/game-update-resilience.md).
+// A Windows profile may also carry its revision site (the immediate that
+// AppVersion::GetRevision returns) and the revision-masked identity: an image
+// equal to the verified one apart from that constant and its Authenticode
+// signature is the verified image of a newer game build (carried).
 struct NativeProfile {
-    std::uint32_t oni_build; const char* identity; std::uintptr_t sim_rva, data_rva;
+    std::uint32_t oni_build; const char* identity;
+    const char* revision_identity; std::uintptr_t revision_rva; std::uint32_t revision_bytes;
+    std::uintptr_t sim_rva, data_rva;
     std::span<const HookProfile> hooks, bindings;
 #if defined(__linux__)
     ma::oni::TrampolineStorage trampoline; const char* trampoline_hash;
@@ -80,6 +86,8 @@ struct NativeProfile {
 #include "oni_profiles.hpp"
 // Set by verify_files before any address is used; the first profile until then.
 const NativeProfile* selected=&native_profiles[0];
+// How verify_files chose `selected` (ma_oni_selected_profile); lifecycle-guarded writes.
+std::array<char,512> selection_note{};
 
 struct Failure : std::runtime_error {
     MAOniResult result;
@@ -851,11 +859,42 @@ std::filesystem::path verify_files(const MAOniObserverConfig* config) {
     // The managed game contract verifies Assembly-CSharp member by member;
     // this library depends only on the SimDLL image, which must be one of
     // the verified profiles (stamps aside, byte for byte).
+    selection_note[0]='\0';
     std::string identity;
-    try { identity=ma::oni::normalized_file_identity(native_image(root)); }
+    std::vector<std::uint8_t> bytes;
+    try { bytes=ma::oni::read_native_image(native_image(root)); identity=ma::oni::normalized_image_identity(bytes); }
     catch (const std::exception& error) { throw Failure(MA_ONI_INCOMPATIBLE,error.what()); }
+    const auto note=[](const std::string& text) {
+        const auto count=std::min(text.size(),selection_note.size()-1);
+        std::memcpy(selection_note.data(),text.data(),count); selection_note[count]='\0';
+    };
     for (const auto& profile : native_profiles)
-        if (identity == profile.identity) { selected=&profile; return root; }
+        if (identity == profile.identity) {
+            selected=&profile;
+            note("verified (the image of build " + std::to_string(profile.oni_build) + ", identity " + identity.substr(0,16) + ")");
+            return root;
+        }
+    // Carried (docs/game-update-resilience.md#tolerated-newer-builds): the
+    // image differs from a verified one only in the revision constant at
+    // that profile's site and in its Authenticode signature; every other
+    // byte is the verified image's, so are its hooks, layouts and globals.
+    // Of several such profiles (equal apart from the constant), the newest.
+    const NativeProfile* carried=nullptr; std::string masked;
+    for (const auto& profile : native_profiles) {
+        if (!profile.revision_identity) continue;
+        std::string candidate;
+        try { candidate=ma::oni::revision_masked_image_identity(bytes,profile.revision_rva,profile.revision_bytes); }
+        catch (const std::exception&) { continue; }
+        if (candidate == profile.revision_identity && (!carried || profile.oni_build > carried->oni_build)) { carried=&profile; masked=candidate; }
+    }
+    if (carried) {
+        selected=carried;
+        char site[32]; std::snprintf(site,sizeof site,"%#llx",static_cast<unsigned long long>(carried->revision_rva));
+        note("carried from the verified image of build " + std::to_string(carried->oni_build) + " (identity " + identity.substr(0,16) +
+             "; it differs only in the revision constant at RVA " + site + ", " + std::to_string(carried->revision_bytes) +
+             " bytes, and the Authenticode signature; revision-masked identity " + masked.substr(0,16) + ")");
+        return root;
+    }
     throw Failure(MA_ONI_INCOMPATIBLE,("this SimDLL (identity " + identity.substr(0,16) + ") is not a verified image").c_str());
 }
 
@@ -1825,6 +1864,7 @@ MAOniResult ma_oni_colony_show_frame(std::uint64_t session,std::uint64_t sequenc
 }
 std::uint32_t ma_oni_abi_version() { return MA_ONI_ABI_VERSION; }
 const char* ma_oni_last_error() { return last_error.data(); }
+const char* ma_oni_selected_profile() { return selection_note.data(); }
 MAOniResult ma_oni_probe(const MAOniObserverConfig* config,MAOniObserverStatus* output) {
     return boundary([&] {
         output_valid(output); (void)verify_files(config);

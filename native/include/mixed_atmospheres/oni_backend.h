@@ -97,6 +97,9 @@ MA_ONI_API MAOniResult ma_oni_observer_status(MAOniObserverStatus*);
 MA_ONI_API MAOniResult ma_oni_copy_trace(MAOniTraceEvent*, uint32_t capacity, uint32_t* count);
 MA_ONI_API MAOniResult ma_oni_detach_observer(void);
 MA_ONI_API const char* ma_oni_last_error(void);
+/* How the last probe or attach chose its SimDLL profile: "verified (...)" or
+   "carried from the verified image of build N (...)"; empty before either. */
+MA_ONI_API const char* ma_oni_selected_profile(void);
 
 #ifdef __cplusplus
 }

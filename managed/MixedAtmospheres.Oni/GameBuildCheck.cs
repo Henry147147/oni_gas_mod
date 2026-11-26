@@ -19,6 +19,10 @@ namespace MixedAtmospheres.Oni
         internal const int CompiledBuild = (int)KleiVersion.ChangeList;
         internal static string Platform => RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "windows-x64" : "linux-x64";
         internal static GameContractPlatform? Contract { get; private set; }
+        // Set when the running game is newer than the contract's build and
+        // was accepted because everything the mod uses is unchanged apart
+        // from the build number (docs/game-update-resilience.md#tolerated-newer-builds).
+        internal static GameContractCheck.BuildTolerance? Tolerated { get; private set; }
         internal static int CheckedEntries { get; private set; }
         internal static double Milliseconds { get; private set; }
 
@@ -49,7 +53,7 @@ namespace MixedAtmospheres.Oni
         // otherwise why the mod stays off, by cause (ModAdmission.GameRefusal).
         internal static ModAdmission.GameRefusal? VerifyManaged(string modDirectory)
         {
-            Contract = null;
+            Contract = null; Tolerated = null;
             var file = Path.Combine(modDirectory, GameContractFile.FileName);
             if (!File.Exists(file))
             {
@@ -68,17 +72,35 @@ namespace MixedAtmospheres.Oni
                 return ModAdmission.Installation("this package has no game contract for " + Platform);
             if (platform.GameBuild != CompiledBuild)
                 return ModAdmission.Installation($"the packaged contract is for build {platform.GameBuild}, but the adapter targets {CompiledBuild}");
-            if (platform.GameBuild != RunningBuild)
+            var newer = ModAdmission.ChecksNewerBuild(RunningBuild, platform.GameBuild, ModAdmission.AtPackageRoot(modDirectory));
+            if (platform.GameBuild != RunningBuild && !newer)
                 return ModAdmission.UnsupportedBuild(ModVersion, RunningBuild, platform.GameBuild);
             var modPatched = new List<GameContractCheck.ModPatched>();
-            var differences = GameContractCheck.Verify(platform, typeof(GameBuildCheck).Assembly, out var checkedEntries, modPatched);
+            var tolerance = newer ? new GameContractCheck.BuildTolerance(RunningBuild) : null;
+            var differences = GameContractCheck.Verify(platform, typeof(GameBuildCheck).Assembly, out var checkedEntries, modPatched, tolerance);
             CheckedEntries = checkedEntries; Milliseconds = started.Elapsed.TotalMilliseconds;
-            if (differences.Count != 0) return Differences(RunningBuild, differences, modPatched);
-            Contract = platform;
-            UnityEngine.Debug.Log($"[Mixed Atmospheres] Game build {RunningBuild} verified: {checkedEntries} managed dependencies match the game contract " +
-                $"(written against build {platform.GameBuild}) in {Milliseconds:F0} ms.");
+            if (differences.Count != 0)
+            {
+                if (!newer) return Differences(RunningBuild, differences, modPatched);
+                var refusal = NewerBuildDifferences(RunningBuild, platform.GameBuild, differences, modPatched);
+                refusal.Details = refusal.Details.Concat(tolerance!.Forgiven.Select(entry => "differs only by the build number: " + entry)).ToArray();
+                return refusal;
+            }
+            Contract = platform; Tolerated = tolerance;
+            if (tolerance != null)
+                UnityEngine.Debug.Log("[Mixed Atmospheres] " + ModAdmission.ToleratedBuildLog(RunningBuild, platform.GameBuild, checkedEntries, tolerance.Forgiven, Milliseconds));
+            else
+                UnityEngine.Debug.Log($"[Mixed Atmospheres] Game build {RunningBuild} verified: {checkedEntries} managed dependencies match the game contract " +
+                    $"(written against build {platform.GameBuild}) in {Milliseconds:F0} ms.");
             return null;
         }
+
+        // Contract differences on a game newer than the contract's build
+        // that the build number does not account for: a Mixed Atmospheres
+        // update is needed, unless every difference is another mod's patch.
+        internal static ModAdmission.GameRefusal NewerBuildDifferences(int running, int supported, List<string> differences, List<GameContractCheck.ModPatched> modPatched) =>
+            modPatched.Count == differences.Count ? Differences(running, differences, modPatched)
+                : ModAdmission.NewerBuildChanged(ModVersion, running, supported, differences.Where(d => !modPatched.Any(m => m.Difference == d)).ToArray());
 
         // Contract differences on a supported build number. When every one
         // is another mod's patch on verified code it is a mod conflict;
@@ -169,11 +191,17 @@ namespace MixedAtmospheres.Oni
             if (contract == null) return;
             refusal = reason.LoadRefusal;
             var targets = new[] { AccessTools.Method(typeof(LoadScreen), nameof(LoadScreen.DoLoad), new[] { typeof(string) }), AccessTools.Method(typeof(MainMenu), "ResumeGame") };
-            var verified = contract.Entries.Where(e => e.Kind == GameContractScope.Kind_Patched).ToDictionary(e => e.Key, e => e.Value, StringComparer.Ordinal);
+            var verified = contract.Entries.Where(e => e.Kind == GameContractScope.Kind_Patched).ToDictionary(e => e.Key, StringComparer.Ordinal);
+            // On a newer game, a target whose code differs only by the build
+            // number (its build-number reading) is the verified code too.
+            var running = GameBuildCheck.RunningBuild;
+            bool Matches(string expected, string actual) => expected == actual || expected == GameContractCanon.Compact(actual);
+            bool Verified(MethodBase target) => verified.TryGetValue(GameContractCanon.Method(target), out var entry) &&
+                (Matches(entry.Value, GameContractCanon.Body(target)) ||
+                 running > contract.GameBuild && entry.BuildMasked.Length != 0 && Matches(entry.BuildMasked, GameContractCanon.Body(target, 0, running)));
             try
             {
-                if (targets.Any(t => t == null || !verified.TryGetValue(GameContractCanon.Method(t), out var body) ||
-                    body != GameContractCanon.Compact(GameContractCanon.Body(t)) && body != GameContractCanon.Body(t))) return;
+                if (targets.Any(t => t == null || !Verified(t))) return;
                 harmony.Patch(targets[0], prefix: new HarmonyMethod(typeof(RefusedBuildLoadGuard), nameof(LoadPrefix)));
                 harmony.Patch(targets[1], prefix: new HarmonyMethod(typeof(RefusedBuildLoadGuard), nameof(ResumePrefix)));
                 UnityEngine.Debug.Log("[Mixed Atmospheres] Only the verified save-load guard is installed.");
