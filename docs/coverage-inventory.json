@@ -6,7 +6,7 @@
     "coverage_policy": "8e9b9613fe36d691e98d2d49c76c4294da57efd4b8eb81880fcdf07d2792ebbe",
     "runtime_identities": "3648ca8af2e5a975851b2b366f85e45be01a70f437e26be02a5118ab6f12c857",
     "private_material_identities": "99d97c8a79495a6d00122711dcf18fe3f2507424de3ada6b397e35e6a561ad40",
-    "native_hook_profiles": "67b5dbd9e8a80d4fe6d58b2bf90c96eed550b60ca080479cd14e490fedaf615e",
+    "native_hook_profiles": "4aeadf947c76d500c8775f5041b4d9ecef9aa871ba858cdcd0551bcb70143992",
     "runtime_identities_linux_base": "708bcbf4452d5749606a18cd0a91e7e9a11683daa62ffe922864a34910492f22"
   },
   "assembly_hashes": {
@@ -11653,6 +11653,16 @@
             "signature": "int(this*)"
           },
           {
+            "platform": "windows-x64",
+            "index": 18,
+            "role": "begin-frame",
+            "symbol": "?BeginFrameProcessing@SimFrameManager@@QEAAHXZ",
+            "rva": 118672,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "cd2180b9566745f859c3be5d4524efb0901dae397fe66b651cb2c3791b94c421",
+            "signature": "int(this*)"
+          },
+          {
             "platform": "linux-x64",
             "index": 18,
             "role": "begin-frame",
@@ -11683,6 +11693,16 @@
       "status": "implemented",
       "fact": {
         "locations": [
+          {
+            "platform": "windows-x64",
+            "index": 4,
+            "role": "begin-save",
+            "symbol": "SIM_BeginSave",
+            "rva": 29920,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "d825ea70965609019a9e18cd170ca5abfbbdf18c853abf6b3cd330cc8d29881e",
+            "signature": "byte*(int*,int,int)"
+          },
           {
             "platform": "windows-x64",
             "index": 4,
@@ -11775,6 +11795,16 @@
             "signature": "void(this*,float,data*,const-region*)"
           },
           {
+            "platform": "windows-x64",
+            "index": 22,
+            "role": "building-heat",
+            "symbol": "?Update@BuildingHeatExchange@@UEAAXMAEAVSimData@@AEBURegion@@@Z",
+            "rva": 244368,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "b3a9ae42dafff5df9c5fb1fca27f3794f87784356697adf67e518809be61b6cc",
+            "signature": "void(this*,float,data*,const-region*)"
+          },
+          {
             "platform": "linux-x64",
             "index": 22,
             "role": "building-heat",
@@ -11805,6 +11835,25 @@
       "status": "implemented",
       "fact": {
         "locations": [
+          {
+            "platform": "windows-x64",
+            "index": 28,
+            "role": "chunk-heat",
+            "symbol": "ExchangeHeatEnergyWithWorld",
+            "rva": 258448,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "e60fa35a716bfb30c3c5f7da6455918616eefa765b542c27fdb04547a0cd247e",
+            "signature": "float(float,const-data*,const-handle*,cell-accessor*,float,element-chunk*)",
+            "native_layout": {
+              "accessor_bytes": 16,
+              "cell_index_offset": 8,
+              "chunk_bytes": 44,
+              "temperature_offset": 4,
+              "heat_capacity_offset": 8,
+              "conductivity_offset": 12,
+              "transfer_scale_offset": 16
+            }
+          },
           {
             "platform": "windows-x64",
             "index": 28,
@@ -11933,6 +11982,16 @@
             "signature": "void(this*,float,data*,const-region*)"
           },
           {
+            "platform": "windows-x64",
+            "index": 20,
+            "role": "consumer",
+            "symbol": "?Update@ElementConsumer@@UEAAXMAEAVSimData@@AEBURegion@@@Z",
+            "rva": 264320,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "ad73c9f05452a95650e547d986fe9e1abb98303b94dc24b320062d297e030fcf",
+            "signature": "void(this*,float,data*,const-region*)"
+          },
+          {
             "platform": "linux-x64",
             "index": 20,
             "role": "consumer",
@@ -11963,6 +12022,17 @@
       "status": "implemented",
       "fact": {
         "locations": [
+          {
+            "platform": "windows-x64",
+            "binding_group": "publication_bindings",
+            "index": 0,
+            "role": "copy-to-game",
+            "symbol": "?CopySimDataToGame@SimBase@@QEAAXAEAVSimData@@AEAVGameData@@AEBV3@H@Z",
+            "rva": 206880,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "55e3d337c8e527e4f46bca6a78d7be15f9aa66f6cb580c63552b95e806f48ad0",
+            "signature": "void(this*,data*,game*,const-game*,int)"
+          },
           {
             "platform": "windows-x64",
             "binding_group": "publication_bindings",
@@ -12059,6 +12129,16 @@
             "signature": "void(this*,float,data*,const-region*)"
           },
           {
+            "platform": "windows-x64",
+            "index": 21,
+            "role": "emitter",
+            "symbol": "?Update@ElementEmitter@@UEAAXMAEAVSimData@@AEBURegion@@@Z",
+            "rva": 268272,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "7c44552e1db6ee5d0e76ca9c98634ab6a9e2d6dd232535ed4b9116648e9b0638",
+            "signature": "void(this*,float,data*,const-region*)"
+          },
+          {
             "platform": "linux-x64",
             "index": 21,
             "role": "emitter",
@@ -12103,6 +12183,7 @@
         "requires_enclosing_phase_coverage": [
           "windows-x64",
           "windows-x64",
+          "windows-x64",
           "windows-x64"
         ],
         "scope": "Forwarding observer; replacement/reader-writer coverage remains required."
@@ -12124,6 +12205,16 @@
       "status": "implemented",
       "fact": {
         "locations": [
+          {
+            "platform": "windows-x64",
+            "index": 19,
+            "role": "end-frame",
+            "symbol": "?EndFrameProcessing@SimFrameManager@@QEAAXXZ",
+            "rva": 119104,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "adeb99da7976ad9f807ca0468db9029103f3e2d2ce98dfa0a621e0ad3c0f8597",
+            "signature": "void(this*)"
+          },
           {
             "platform": "windows-x64",
             "index": 19,
@@ -12216,6 +12307,16 @@
             "signature": "void()"
           },
           {
+            "platform": "windows-x64",
+            "index": 5,
+            "role": "end-save",
+            "symbol": "SIM_EndSave",
+            "rva": 31312,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "d5d6b528b9118fc2cd70d4df6854b6b58373a06abd64dae4c29a83b1d378d7d2",
+            "signature": "void()"
+          },
+          {
             "platform": "linux-x64",
             "index": 5,
             "role": "end-save",
@@ -12246,6 +12347,16 @@
       "status": "implemented",
       "fact": {
         "locations": [
+          {
+            "platform": "windows-x64",
+            "index": 25,
+            "role": "gas-displacement",
+            "symbol": "?DoGasPressureDisplacement@@YAMGHHHAEAVSimData@@@Z",
+            "rva": 306000,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "a65764a41eca30a123d49aff4013bfef79177835030ec6d1d80898a02062b477",
+            "signature": "float(uint16,int,int,int,data*)"
+          },
           {
             "platform": "windows-x64",
             "index": 25,
@@ -12321,6 +12432,7 @@
         "requires_enclosing_phase_coverage": [
           "windows-x64",
           "windows-x64",
+          "windows-x64",
           "windows-x64"
         ],
         "scope": "Forwarding observer; replacement/reader-writer coverage remains required."
@@ -12356,6 +12468,7 @@
         "requires_enclosing_phase_coverage": [
           "windows-x64",
           "windows-x64",
+          "windows-x64",
           "windows-x64"
         ],
         "scope": "Forwarding observer; replacement/reader-writer coverage remains required."
@@ -12377,6 +12490,16 @@
       "status": "implemented",
       "fact": {
         "locations": [
+          {
+            "platform": "windows-x64",
+            "index": 0,
+            "role": "initialize",
+            "symbol": "SIM_Initialize",
+            "rva": 31840,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "24edabb6cdd986830bad4942dd87b57f477a4e5e103947a2a0a2f2c8947f8aea",
+            "signature": "void(callback)"
+          },
           {
             "platform": "windows-x64",
             "index": 0,
@@ -12469,6 +12592,16 @@
             "signature": "void(data*,events*,int)"
           },
           {
+            "platform": "windows-x64",
+            "index": 11,
+            "role": "liquid",
+            "symbol": "?UpdateLiquid@@YAXAEAVSimData@@AEAUSimEvents@@H@Z",
+            "rva": 301232,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "3a4707e10ae1b06eff666b1453d83da9997c8ac7781acd8b0534ef41f4db4ae9",
+            "signature": "void(data*,events*,int)"
+          },
+          {
             "platform": "linux-x64",
             "index": 11,
             "role": "liquid",
@@ -12499,6 +12632,16 @@
       "status": "implemented",
       "fact": {
         "locations": [
+          {
+            "platform": "windows-x64",
+            "index": 26,
+            "role": "liquid-displacement",
+            "symbol": "?DoLiquidPressureDisplacement@@YAMGHHHAEAVSimData@@@Z",
+            "rva": 299616,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "2d5ebe42a0cd309feb6d61182ad55936b3758b1663aff8afdb0d4ae0d9fe3a41",
+            "signature": "float(uint16,int,int,int,data*)"
+          },
           {
             "platform": "windows-x64",
             "index": 26,
@@ -12591,6 +12734,16 @@
             "signature": "void(data*,int)"
           },
           {
+            "platform": "windows-x64",
+            "index": 14,
+            "role": "load-transition",
+            "symbol": "?DoLoadTimeStateTransition@@YAXAEAVSimData@@H@Z",
+            "rva": 219216,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "e1e6800468a6d7448f5ed14283eeab1d1221d75933c6348de818ba1f58235fc4",
+            "signature": "void(data*,int)"
+          },
+          {
             "platform": "linux-x64",
             "index": 14,
             "role": "load-transition",
@@ -12621,6 +12774,16 @@
       "status": "implemented",
       "fact": {
         "locations": [
+          {
+            "platform": "windows-x64",
+            "index": 6,
+            "role": "main",
+            "symbol": "?Main@Sim@@MEAAXXZ",
+            "rva": 216272,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "a1602c0acc6037af4c12df3eefba77ccea2b5cf96f72fb038215864a68da3021",
+            "signature": "void(this*)"
+          },
           {
             "platform": "windows-x64",
             "index": 6,
@@ -12713,6 +12876,16 @@
             "signature": "pointer(int,int,byte*)"
           },
           {
+            "platform": "windows-x64",
+            "index": 2,
+            "role": "message",
+            "symbol": "SIM_HandleMessage",
+            "rva": 31360,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "3f19deac36daf1124cae54ae7ca675bb403b45af8737d7d8792eb2e92eb2a748",
+            "signature": "pointer(int,int,byte*)"
+          },
+          {
             "platform": "linux-x64",
             "index": 2,
             "role": "message",
@@ -12743,6 +12916,16 @@
       "status": "implemented",
       "fact": {
         "locations": [
+          {
+            "platform": "windows-x64",
+            "index": 3,
+            "role": "messages",
+            "symbol": "SIM_HandleMessages",
+            "rva": 31584,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "a847b9beacd38f9d04e8fbdec5241e29e6cade8d7063921ff12c3b38bf94aaac",
+            "signature": "pointer(int,int,int,byte*)"
+          },
           {
             "platform": "windows-x64",
             "index": 3,
@@ -12835,6 +13018,16 @@
             "signature": "float(this*,data*)"
           },
           {
+            "platform": "windows-x64",
+            "index": 8,
+            "role": "next-frame",
+            "symbol": "?ProcessNextFrame@SimFrameManager@@QEAAMAEAVSimData@@@Z",
+            "rva": 134384,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "a4ff1d941f6ed5b1c8c9d045a578d9890e207e22760ad0c6e18fa6a7a3e57ba0",
+            "signature": "float(this*,data*)"
+          },
+          {
             "platform": "linux-x64",
             "index": 8,
             "role": "next-frame",
@@ -12896,6 +13089,16 @@
             "signature": "void(data*,events*,int)"
           },
           {
+            "platform": "windows-x64",
+            "index": 16,
+            "role": "post-process",
+            "symbol": "?PostProcessCell@@YAXAEAVSimData@@AEAUSimEvents@@H@Z",
+            "rva": 318192,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "0cff3c62d9ceb0e7542e5d837edb857da8f880b4298a530c2a46da37ee571a3a",
+            "signature": "void(data*,events*,int)"
+          },
+          {
             "platform": "linux-x64",
             "index": 16,
             "role": "post-process",
@@ -12926,6 +13129,17 @@
       "status": "implemented",
       "fact": {
         "locations": [
+          {
+            "platform": "windows-x64",
+            "binding_group": "publication_bindings",
+            "index": 1,
+            "role": "prepare-game-data-update",
+            "symbol": "?PrepareGameDataUpdate@@YAPEAXAEBVGameData@@@Z",
+            "rva": 26560,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "25fc36d6c1401121e689b8d0973d301b85987cb10740b0e76929f41e4e541237",
+            "signature": "pointer(const-game*)"
+          },
           {
             "platform": "windows-x64",
             "binding_group": "publication_bindings",
@@ -13022,6 +13236,16 @@
             "signature": "float(data*,events*,const-cell*,cell*,int,uint16,int8,float,int)"
           },
           {
+            "platform": "windows-x64",
+            "index": 10,
+            "role": "pressure",
+            "symbol": "?UpdatePressure@@YAMAEAVSimData@@AEAUSimEvents@@PEBUCellSOA@@PEAU3@HGCMH@Z",
+            "rva": 306848,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "b0d511bc287640625d1bc7449489e23949bd50048f1c61108b3078f8366ace3d",
+            "signature": "float(data*,events*,const-cell*,cell*,int,uint16,int8,float,int)"
+          },
+          {
             "platform": "linux-x64",
             "index": 10,
             "role": "pressure",
@@ -13052,6 +13276,16 @@
       "status": "implemented",
       "fact": {
         "locations": [
+          {
+            "platform": "windows-x64",
+            "index": 7,
+            "role": "process-frame",
+            "symbol": "?ProcessFrame@SimFrameManager@@SAXAEAUSimFrameInfo@@AEAVSimData@@@Z",
+            "rva": 128816,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "22df0ae7e31070cb251808a8241da59dfba27c5080b134f5d118d87456a475fb",
+            "signature": "void(frame*,data*)"
+          },
           {
             "platform": "windows-x64",
             "index": 7,
@@ -13144,6 +13378,16 @@
             "signature": "void()"
           },
           {
+            "platform": "windows-x64",
+            "index": 1,
+            "role": "shutdown",
+            "symbol": "SIM_Shutdown",
+            "rva": 32048,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "dda95cc2f43320af30e405b5a489fa5c2b577a1f096040479e0c9d31204062eb",
+            "signature": "void()"
+          },
+          {
             "platform": "linux-x64",
             "index": 1,
             "role": "shutdown",
@@ -13174,6 +13418,16 @@
       "status": "implemented",
       "fact": {
         "locations": [
+          {
+            "platform": "windows-x64",
+            "index": 13,
+            "role": "state-transition",
+            "symbol": "?DoStateTransition@@YA_NAEAVSimData@@AEAUSimEvents@@HAEBUElementTemperatureData@@@Z",
+            "rva": 219616,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "2649ccf26ec0285ad56bc74892f523ac84abeb1a5bc4ac0eeb540b91b6f36494",
+            "signature": "bool(data*,events*,int,const-definition*)"
+          },
           {
             "platform": "windows-x64",
             "index": 13,
@@ -13249,6 +13503,7 @@
         "requires_enclosing_phase_coverage": [
           "windows-x64",
           "windows-x64",
+          "windows-x64",
           "windows-x64"
         ],
         "scope": "Forwarding observer; replacement/reader-writer coverage remains required."
@@ -13270,6 +13525,16 @@
       "status": "implemented",
       "fact": {
         "locations": [
+          {
+            "platform": "windows-x64",
+            "index": 15,
+            "role": "sublimation",
+            "symbol": "?DoSublimation@@YA_NAEAVSimData@@AEAUSimEvents@@HAEBUElementPostProcessData@@@Z",
+            "rva": 313424,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "9683fa68612df2f39302527a4e81ae6dd8391f617bdfa1544e0c03120472d8ec",
+            "signature": "bool(data*,events*,int,const-definition*)"
+          },
           {
             "platform": "windows-x64",
             "index": 15,
@@ -13363,6 +13628,16 @@
             "signature": "void(data*,events*,int,int)"
           },
           {
+            "platform": "windows-x64",
+            "index": 12,
+            "role": "temperature",
+            "symbol": "?UpdateTemperature@@YAXAEAVSimData@@AEAUSimEvents@@HH@Z",
+            "rva": 222320,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "f90e07b221ff0fdb59d85a6ce786676dbadc6f95f7810d2eca6a76ec9cc7bb0d",
+            "signature": "void(data*,events*,int,int)"
+          },
+          {
             "platform": "linux-x64",
             "index": 12,
             "role": "temperature",
@@ -13393,6 +13668,16 @@
       "status": "implemented",
       "fact": {
         "locations": [
+          {
+            "platform": "windows-x64",
+            "index": 9,
+            "role": "update-data",
+            "symbol": "?UpdateData@SimBase@@QEAAXAEAVSimData@@@Z",
+            "rva": 285968,
+            "fingerprint_bytes": 32,
+            "fingerprint_sha256": "a796150c32d95a5969984ed6066a7a123232ee49816ee0724dd5609c06b2b56f",
+            "signature": "void(this*,data*)"
+          },
           {
             "platform": "windows-x64",
             "index": 9,

@@ -54,7 +54,7 @@ internal static class Program
         var supportsScheduling=biology.GetMethod("IsSupportedSchedulingSignature",BindingFlags.Static|BindingFlags.NonPublic)!;
         Check((bool)supportsScheduling.Invoke(null,new object[]{scheduling})!,
             "Pipe worker scheduling changed: the supported game must join prior conduit jobs and run disease updates before the next gas/liquid flows.");
-        foreach(var name in new[]{"ExpectedSchedulingSignature","ExpectedWindowsSchedulingSignature","ExpectedSchedulingSignature763796","ExpectedWindowsSchedulingSignature763796"})
+        foreach(var name in new[]{"ExpectedSchedulingSignature","ExpectedWindowsSchedulingSignature","ExpectedSchedulingSignature763796","ExpectedWindowsSchedulingSignature763796","ExpectedSchedulingSignature764961","ExpectedWindowsSchedulingSignature764961"})
         {
             var signature=(string)biology.GetField(name,BindingFlags.Static|BindingFlags.NonPublic)!.GetRawConstantValue()!;
             Check((bool)supportsScheduling.Invoke(null,new object[]{signature})!,"An inspected worker boundary was refused.");

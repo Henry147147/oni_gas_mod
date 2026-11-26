@@ -31,18 +31,18 @@ native boundary is in [the interop contract](../docs/interop-contract.md).
 | Windows Steam install | `D:\SteamLibrary\steamapps\common\OxygenNotIncluded` (Windows machine) | Windows builds and Unity runs |
 | Copy of the Windows install | `/mnt/data/share/oni/OxygenNotIncluded` | Inspecting Windows files from Linux; the Windows player under Proton |
 | Copy of the Linux install | `/mnt/data/share/oni/OxygenNotIncluded-linux` | Linux builds; `oni_headless.py` default |
-| Copies of the previous builds (744825, 763796) | `/mnt/data/share/oni/OxygenNotIncluded-744825`, `…-linux-744825`, `…-763796`, `…-linux-763796` | Reference for the profile tests and for comparing builds |
+| Copies of the previous builds (744825, 763796, 764025) | `/mnt/data/share/oni/OxygenNotIncluded-744825`, `…-linux-744825`, `…-763796`, `…-linux-763796`, `…-764025`, `…-linux-764025` | Reference for the profile tests and for comparing builds |
 | Linux Steam install | `<state>/steam-home/.local/share/Steam/steamapps/common/OxygenNotIncluded` | Updates with Steam; see [ONI_HEADLESS.md](ONI_HEADLESS.md) |
 
 `/mnt/data/share` is the Linux host's Samba share, `\\192.168.1.24\share` from
 Windows. Pass the game root to builds as `ONI_GAME_DIR` or `-p:OniGameDir`.
 `tools/build.py --game-dir` passes both.
 
-Game-facing code was inspected against ONI build **764025** (Steam BuildID
-26798728, fetched 2026-11-20; **763796**, BuildID 26770249, for one day
-before it and **744825** until 2026-11-19), Unity 6000.3.17f1 and
-Harmony 2.4.2.0. Starting with 1.11.0, one package includes the current build and the
-two earlier builds. Each selected adapter checks the exact running build,
+Game-facing code was inspected against ONI build **764961** (Steam BuildID
+26935396, fetched 2026-11-26; **764025**, BuildID 26798728, from 2026-11-20,
+**763796**, BuildID 26770249, for one day before it and **744825** until
+2026-11-19), Unity 6000.3.17f1 and Harmony 2.4.2.0. Starting with 1.11.0,
+one package includes the current build and the earlier builds. Each selected adapter checks the exact running build,
 its managed dependencies and the native profile
 ([maintaining support](../docs/game-update-resilience.md#keeping-an-earlier-build-working)). The adapter
 targets .NET Standard 2.1, which Klei's
@@ -51,9 +51,14 @@ recommends.
 
 | File (under `OxygenNotIncluded_Data/`) | Windows x64 SHA256 | Linux x64 SHA256 |
 | --- | --- | --- |
-| Native simulator (`Plugins/x86_64/SimDLL.dll`, `Plugins/x86_64/libSimDLL.so`) | `02c18a626fd10b7253792a3f0e6e361d8ff54ba1db020b2c6af96b83c86f8bfd` | `85111cd0b1fc14c79c785581d6c055280b9d48ba705776f3d14eb0a7b239c12d` |
-| `Managed/Assembly-CSharp.dll` | `96b192e45e044aa591e7143bbe1126d685dd1a195db7ba1632fdf4abd8fe3036` | `39dc204f0ec52e9e6af2f2c65fec27b6b928fa6d362e041c6592501f4925ae07` |
-| `Managed/Assembly-CSharp-firstpass.dll` | `ec4dada9437739ec8c3253a8884ba9165a56e80fba97a6494dd42f78148cad89` | `33028961e62386c9deb59acd85f334e7d36f38c55f59f5e36df3fd5c8688d7ab` |
+| Native simulator (`Plugins/x86_64/SimDLL.dll`, `Plugins/x86_64/libSimDLL.so`) | `e680b9aca8516f4456e7a456f29c5a7bc456117c180555406e2b3aa4bcb3eda4` | `85111cd0b1fc14c79c785581d6c055280b9d48ba705776f3d14eb0a7b239c12d` |
+| `Managed/Assembly-CSharp.dll` | `308bd6aeea29266010c2b34bb336ca9fb11612b554f33c8aca7ee213b96a11a0` | `51aafd6c2857e997daaf154ea0ac0f4db9b4520fb8872bc92333f9086e933d9a` |
+| `Managed/Assembly-CSharp-firstpass.dll` | `24bbf7f929254832825bdb070187af9f22109f0d6c347ba67dd9cb1e3a0e4f92` | `33028961e62386c9deb59acd85f334e7d36f38c55f59f5e36df3fd5c8688d7ab` |
+
+Since 764961 Klei signs every Windows DLL (Authenticode, Klei Entertainment
+Inc.): each file carries a 15,696-byte certificate at its end, so its SHA-256
+changes even where its code does not (`Assembly-CSharp-firstpass.dll`, the
+Unity and framework assemblies).
 
 The Linux simulator is byte for byte the 744825 one and moved from `Plugins/`
 to `Plugins/x86_64/`; the Windows one differs from 744825 only in its revision

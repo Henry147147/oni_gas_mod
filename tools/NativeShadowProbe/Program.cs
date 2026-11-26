@@ -40,11 +40,11 @@ internal static unsafe partial class Program
             var nativePath = Path.GetFullPath(args[0]);
             var contract = Contract.Read(args[1]);
             var nativeHash = Convert.ToHexStringLower(SHA256.HashData(File.ReadAllBytes(nativePath)));
-            // Windows: 744825, 763796 and 764025 (the same code; only the revision
-            // constant differs). Linux: one image for all three builds.
+            // Windows: 744825, 763796, 764025 and 764961 (the same code; only the
+            // revision constant differs, and 764961 is signed). Linux: one image for all four builds.
             var expectedNativeHashes = OperatingSystem.IsWindows()
                 ? new[] { "031960f120ac1d59fd8e43f6e1a7369111c629b90c24d52186b691dfe2d8a727", "1216e026693230dfc567fbbed7da8a3ae019641a2c5f6e332c297ecf610f4971",
-                    "02c18a626fd10b7253792a3f0e6e361d8ff54ba1db020b2c6af96b83c86f8bfd" }
+                    "02c18a626fd10b7253792a3f0e6e361d8ff54ba1db020b2c6af96b83c86f8bfd", "e680b9aca8516f4456e7a456f29c5a7bc456117c180555406e2b3aa4bcb3eda4" }
                 : new[] { "85111cd0b1fc14c79c785581d6c055280b9d48ba705776f3d14eb0a7b239c12d" };
             Require(Array.IndexOf(expectedNativeHashes, nativeHash) >= 0, "Native library differs from the inspected platform builds.");
             report["simDllSha256"] = nativeHash;
