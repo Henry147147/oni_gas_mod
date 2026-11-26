@@ -31,12 +31,7 @@ namespace MixedAtmospheres.Oni
         internal static bool Dump(ConduitFlow flow,int cell)
         {
             if(!Enabled)return false;
-            var id=ColonyPipePorts.HoldForPort(flow,cell,double.MaxValue);
-            if(id!=0)
-            {
-                var spill=new Spill(cell,id,ColonyOwner.Status.CompletedFrames);Spills.Add(id,spill);
-                TryDispatch(spill,ColonyOwner.Status.CompletedFrames);
-            }
+            HoldSpill(ColonyConduits.HoldForTeardown(flow,cell),cell);
             // The native dump received a by-value contents snapshot before
             // this hook. Suppress that scalar emission; its caller still
             // performs normal conduit cleanup after our complete reservation.
@@ -44,12 +39,13 @@ namespace MixedAtmospheres.Oni
         }
         // Any other owned parcel that must leave into the world (wrong-element
         // dumps, phase releases) uses the same retained, retried spill.
-        internal static void HoldSpill(ulong id,int worldCell)
+        internal static void HoldSpill(ulong id,int worldCell,bool dispatch=true)
         {
             if(!Enabled)throw new InvalidOperationException("Conservative spills are not active.");
             if(id==0)return;
-            var spill=new Spill(worldCell,id,ColonyOwner.Status.CompletedFrames);Spills.Add(id,spill);
-            TryDispatch(spill,ColonyOwner.Status.CompletedFrames);
+            var frame=ColonyOwner.Status.CompletedFrames;
+            var spill=new Spill(worldCell,id,frame);Spills.Add(id,spill);
+            if(dispatch)TryDispatch(spill,frame);
         }
         internal static void Capture(PipeRuntimeImage image)
         {

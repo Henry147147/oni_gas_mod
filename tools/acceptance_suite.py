@@ -144,6 +144,7 @@ LINUX_EXTRA_BATCHES = (
     ("every-living-1", 1, ("--speed", "3"), {}),
     ("every-living-2", 1, ("--speed", "3"), {}),
     ("every-living-3", 1, ("--speed", "3"), {}),
+    ("mixed-pipe-disconnected-save", 0, ("--save-colony",), {}),
 )
 # In-game scenarios that no Linux batch runs, and why.
 UNTIERED_SCENARIOS = {
