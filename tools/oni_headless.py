@@ -1371,6 +1371,8 @@ def playtest(args, state: Path, session: dict) -> int:
                 "colony_started": bool(report and report.get("GameStarted")),
                 "authoritative_colony_simulation_ready": False, "full_mod_completion_verified": False,
                 "integration_probe": probe, "colony_report": report, "package_manifest": manifest,
+                # Verified game methods that carry other mods' patches, which the mod runs beside (--extra-mod-first).
+                "other_mod_patches": probe.get("GameContractOtherModPatches") if isinstance(probe, dict) else None,
                 "colony_owner": final_owner_report,
                 "native_backend_observation": observer_report,
                 "native_backend_observer_passed": observer_ok,
@@ -1460,7 +1462,7 @@ def main() -> int:
     play.add_argument("--resume-save", type=Path, metavar="SAVE",
                       help="menu mode only: the main menu resumes this colony save by itself (the game's AutoResumeSaveFile "
                            "preference); the run passes when the mod refuses the save before the game loads it, e.g. while "
-                           "another mod keeps it off (--extra-mod-first)")
+                           "a stand-in that removed its patches keeps it off (--extra-mod-first, MA_OTHER_MOD_REMOVES_PATCHES=1)")
     play.add_argument("--expected-refusal", action="append", metavar="TEXT",
                       help="A control run only: a mod log line holding TEXT, and the stack of an exception whose header holds it, "
                            "is the refusal the scenario asks for and not a failure; repeatable")

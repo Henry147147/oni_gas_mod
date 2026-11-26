@@ -49,7 +49,7 @@ namespace MixedAtmospheres.Oni
         // otherwise why the mod stays off, by cause (ModAdmission.GameRefusal).
         internal static ModAdmission.GameRefusal? VerifyManaged(string modDirectory)
         {
-            Contract = null;
+            Contract = null; OtherModPatches = Array.Empty<string>();
             var file = Path.Combine(modDirectory, GameContractFile.FileName);
             if (!File.Exists(file))
             {
@@ -73,28 +73,37 @@ namespace MixedAtmospheres.Oni
             var modPatched = new List<GameContractCheck.ModPatched>();
             var differences = GameContractCheck.Verify(platform, typeof(GameBuildCheck).Assembly, out var checkedEntries, modPatched);
             CheckedEntries = checkedEntries; Milliseconds = started.Elapsed.TotalMilliseconds;
-            if (differences.Count != 0) return Differences(RunningBuild, differences, modPatched);
-            Contract = platform;
+            var refusal = Admit(RunningBuild, differences, modPatched, out var otherModPatches);
+            if (refusal != null) return refusal;
+            Contract = platform; OtherModPatches = otherModPatches;
             UnityEngine.Debug.Log($"[Mixed Atmospheres] Game build {RunningBuild} verified: {checkedEntries} managed dependencies match the game contract " +
-                $"(written against build {platform.GameBuild}) in {Milliseconds:F0} ms.");
+                $"(written against build {platform.GameBuild}) in {Milliseconds:F0} ms." + ModAdmission.OtherModPatchesLog(otherModPatches));
             return null;
         }
 
+        // Game methods the mod uses that carry other mods' Harmony patches on
+        // verified code, one line each ("Type.Method <- Mod title (Harmony:
+        // id)"); empty when there are none or the build is not verified.
+        internal static IReadOnlyList<string> OtherModPatches { get; private set; } = Array.Empty<string>();
+
         // Contract differences on a supported build number. When every one
-        // is another mod's patch on verified code it is a mod conflict;
-        // anything else means the game's code is not this build's.
-        internal static ModAdmission.GameRefusal Differences(int build, List<string> differences, List<GameContractCheck.ModPatched> modPatched)
+        // is another mod's patch mark on verified code, the build is
+        // verified and the mod runs beside those patches (user request
+        // 2026-11-26, docs/game-update-resilience.md#other-mods): null, with
+        // the patched methods in `otherModPatches`. Anything else, alone or
+        // beside patch marks, means the game's code is not this build's.
+        internal static ModAdmission.GameRefusal? Admit(int build, List<string> differences, List<GameContractCheck.ModPatched> modPatched, out string[] otherModPatches)
         {
+            otherModPatches = Array.Empty<string>();
             if (modPatched.Count != differences.Count) return ModAdmission.GameFiles(build, differences);
             // One line per patched method: the contract can hold a method as
             // a call, as a name looked up and as a patch target at once.
             var methods = new SortedDictionary<string, MethodBase>(StringComparer.Ordinal);
             foreach (var method in modPatched.SelectMany(part => part.Methods))
                 methods[GameContractCanon.Type(method.DeclaringType).Replace('/', '.') + "." + method.Name] = method;
-            var refusal = ModAdmission.OtherMods(build, methods.Select(method => new KeyValuePair<string, string[]>(method.Key, PatchingMods(method.Value))).ToArray());
-            refusal.Details = methods.Select(method => method.Key + " <- " + string.Join(", ", PatchingMods(method.Value)) +
+            otherModPatches = methods.Select(method => method.Key + " <- " + string.Join(", ", PatchingMods(method.Value)) +
                 " (Harmony: " + string.Join(", ", Harmony.GetPatchInfo(method.Value)?.Owners ?? Enumerable.Empty<string>()) + ")").ToArray();
-            return refusal;
+            return null;
         }
 
         // The mods whose patches Harmony reports on this method, by the name

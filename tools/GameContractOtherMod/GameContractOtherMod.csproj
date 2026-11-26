@@ -7,6 +7,9 @@
     <Nullable>enable</Nullable><TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <GenerateDependencyFile>false</GenerateDependencyFile><DebugType>none</DebugType>
     <OniManagedDir>$(OniGameDir)/OxygenNotIncluded_Data/Managed</OniManagedDir>
+    <!-- Builds into another intermediate folder must not compile what an
+         in-place build (tools/acceptance_suite.py) left in obj/. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);obj/**;bin/**</DefaultItemExcludes>
   </PropertyGroup>
   <ItemGroup>
     <Reference Include="Assembly-CSharp"><HintPath>$(OniManagedDir)/Assembly-CSharp.dll</HintPath><Private>false</Private></Reference>

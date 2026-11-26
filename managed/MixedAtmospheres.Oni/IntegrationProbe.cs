@@ -17,6 +17,8 @@ namespace MixedAtmospheres.Oni
         [DataMember] public string InspectedOniBuild = KleiVersion.ChangeList.ToString(System.Globalization.CultureInfo.InvariantCulture);
         [DataMember] public int RunningOniBuild = GameBuildCheck.RunningBuild;
         [DataMember] public int GameContractEntries = GameBuildCheck.CheckedEntries;
+        // Verified game methods the mod uses that carry other mods' Harmony patches (GameBuildCheck.OtherModPatches).
+        [DataMember] public string[] GameContractOtherModPatches = System.Linq.Enumerable.ToArray(GameBuildCheck.OtherModPatches);
         [DataMember] public string AssemblySha256 = "";
         [DataMember] public string UnityVersion = "";
         [DataMember] public string Platform = "";

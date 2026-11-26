@@ -1061,8 +1061,18 @@ def linux_cycle_autosave(output: Path, revision: str) -> Path:
     return autos[-1].resolve()
 
 
+# What the refused save is told: the mod is not active because the game's code differs (ModAdmission.GameFiles).
+RESUME_REFUSAL_CAUSE = "[Mixed Atmospheres] Colony save refused before loading: This colony uses Mixed Atmospheres, which is not active because the game's code differs from the supported build"
+
+
 def resume_refused_command(package: Path, output: Path, infra: Infra, save: Path, other_mod: Path) -> list[str]:
-    """The main menu resumes `save` while a mod loaded first keeps Mixed Atmospheres off (tools/GameContractOtherMod)."""
+    """The main menu resumes `save` while a mod loaded first keeps Mixed Atmospheres off (tools/GameContractOtherMod).
+
+    The stand-in runs with MA_OTHER_MOD_REMOVES_PATCHES=1: it patches two game methods the mod uses and removes
+    the patches again. Harmony's patch mark stays on them and no mod's patch accounts for it, so the game's code
+    reads as changed (another mod's patch alone is accepted, docs/game-update-resilience.md#other-mods), while
+    the two load entries stay verified and the mod's guard is installed on them.
+    """
     return [sys.executable, "tools/oni_headless.py", "run", "--game-dir", str(infra.linux_game), "--package", str(package),
             "--mode", "menu", "--resume-save", str(save), "--extra-mod-first", str(other_mod),
             "--gpu-display", infra.gpu_display, "--timeout", "600", "--output", str(output)]
@@ -1073,8 +1083,10 @@ def resume_refused_checks(rc: int, output: Path, save: Path, save_sha: str) -> t
     log = (output / "Player.log").read_text(errors="replace") if (output / "Player.log").is_file() else ""
     build, header = save_header(save.read_bytes())
     checks = {"harness_pass": rc == 0, "refused_before_loading": result.get("status") == "passed-resume-refused",
-              # The mod is off because of the other mod, and its guard is what refused the save.
-              "mod_off_by_other_mod": "Only the verified save-load guard is installed." in log,
+              # The mod is off because the game's code reads as changed, and its guard is what refused the save.
+              "mod_off_game_code_changed": "(the game's code differs from the supported build); nothing is patched." in log,
+              "guard_installed": "Only the verified save-load guard is installed." in log,
+              "refusal_names_cause": RESUME_REFUSAL_CAUSE in log,
               "input_save_unchanged": sha256(save) == save_sha}
     return checks, {"classification": result.get("status"), "input_save": {"path": str(save), "sha256": save_sha, "game_build": build,
                     "save_version": f"{header.get('saveMajorVersion')}.{header.get('saveMinorVersion')}"}}
@@ -1253,8 +1265,8 @@ class Suite:
                                    cwd=self.layout.source, env=clean_env(), capture_output=True, text=True)
             if built.returncode != 0:
                 raise Refused("The stand-in mod did not build: " + (built.stdout + built.stderr)[-400:])
-            # The stand-in leaves the load entries unpatched, so the guard can be installed on them.
-            env["MA_OTHER_MOD_LEAVES_LOAD"] = "1"
+            # The stand-in removes its patches again and leaves the load entries alone (resume_refused_command).
+            env["MA_OTHER_MOD_REMOVES_PATCHES"] = "1"
             rc = self.game(resume_refused_command(package, output, self.infra, save, other_mod), log, env)
             checks, details = resume_refused_checks(rc, output, save, save_sha)
             return checks, {**common, "returncode": rc, **details}

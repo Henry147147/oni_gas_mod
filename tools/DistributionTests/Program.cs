@@ -79,25 +79,15 @@ static class Program
         Check(older.Notice.Contains("Update Oxygen Not Included") && !older.Notice.Contains(Updates) && older.LoadRefusal.Contains("Update Oxygen Not Included, then load"), older.Notice);
         Check(ModAdmission.UnsupportedBuild("1.13.9", 0, 764025).Notice.Contains("an unknown build"), "unreadable build number");
 
-        KeyValuePair<string, string[]> Part(string method, params string[] mods) => new KeyValuePair<string, string[]>(method, mods);
-        var one = ModAdmission.OtherMods(764025, new[] { Part("SaveLoader.Save", "Fast Track") });
-        Check(one.Notice.Contains("another mod has changed game code it depends on") && one.Notice.Contains("supports your game (build 764025): neither is out of date") &&
-            one.Notice.Contains("One game method it uses was patched by:\n  - Fast Track (one method)") && one.Notice.Contains("Try disabling that mod") &&
-            one.Notice.Contains("Steam Workshop") && one.Notice.Contains("github.com/Henry147147/oni_gas_mod/issues") && one.Notice.Contains("Player.log") &&
-            !one.Notice.Contains(Updates) && !one.Notice.Contains("does not support"), one.Notice);
-        Check(one.LoadRefusal.Contains("because other mods have changed game code") && one.LoadRefusal.Contains("Disable those mods and restart the game, then load the colony again.") &&
-            !one.LoadRefusal.Contains("update"), one.LoadRefusal);
-        Check(one.Details.SequenceEqual(new[] { "SaveLoader.Save <- Fast Track" }), "conflict details");
-        // Mods in the order of how much they patched; a mod counts a method once.
-        var many = ModAdmission.OtherMods(764025, new[]
-        {
-            Part("SaveLoader.Save", "B Mod", "A Mod", "A Mod"), Part("SaveLoader.LoadHeader", "A Mod"), Part("CustomGameSettings.SetQualitySetting", "A Mod"),
-            Part("Game.Save", "C3"), Part("Game.Load", "C4"), Part("Game.A", "C5"), Part("Game.B", "C6"), Part("Game.C", "C7"), Part("Game.D", "C8"),
-        });
-        Check(many.Notice.Contains("other mods have changed") && many.Notice.Contains("9 game methods it uses were patched by:\n  - A Mod (3 methods)\n  - B Mod (one method)\n  - C3 (one method)") &&
-            many.Notice.Contains("  - C6 (one method)\n  - and 2 more mods (listed in Player.log)") && !many.Notice.Contains("C7") &&
-            many.Notice.Contains("Try disabling those mods") && many.Notice.Contains("To use them together"), many.Notice);
-        Check(many.Details.Count == 9 && many.Details[0] == "SaveLoader.Save <- B Mod, A Mod, A Mod", "every patched method is in the details");
+        // Another mod's patch alone is no refusal (docs/game-update-resilience.md#other-mods): Player.log
+        // counts the patched methods after the verified line and lists one per line.
+        Check(ModAdmission.OtherModPatchesLog(Array.Empty<string>()) == "", "no other mods, nothing added");
+        var one = ModAdmission.OtherModPatchesLog(new[] { "SaveLoader.Save <- Fast Track (Harmony: FastTrack)" });
+        Check(one == " One game method the mod uses carries another mod's Harmony patch; their code is verified and the mod runs beside the patches:\n" +
+            "  SaveLoader.Save <- Fast Track (Harmony: FastTrack)", one);
+        var many = ModAdmission.OtherModPatchesLog(new[] { "Db.Initialize <- Rephysicalized (Harmony: Rephysicalized)", "MainMenu.OnSpawn <- A, B (Harmony: a, b)" });
+        Check(many.StartsWith(" 2 game methods the mod uses carry other mods' Harmony patches;", StringComparison.Ordinal) &&
+            many.EndsWith(":\n  Db.Initialize <- Rephysicalized (Harmony: Rephysicalized)\n  MainMenu.OnSpawn <- A, B (Harmony: a, b)", StringComparison.Ordinal), many);
 
         var files = ModAdmission.GameFiles(764025, new[]
         {
@@ -124,7 +114,7 @@ static class Program
         var start = ModAdmission.StartFailure("boom");
         Check(start.Contains("could not start and has removed all of its changes, so the game runs as normal: boom") && start.Contains("try disabling other mods") &&
             start.Contains("github.com/Henry147147/oni_gas_mod/issues"), start);
-        foreach (var refusal in new[] { newer, older, one, many, files, native, installation, failed })
+        foreach (var refusal in new[] { newer, older, files, native, installation, failed })
             Check(refusal.Kind.Length != 0 && refusal.Details.Count != 0 && refusal.Notice.Contains("can be loaded again once") &&
                 refusal.LoadRefusal.StartsWith("This colony uses Mixed Atmospheres, which is not active ", StringComparison.Ordinal), "complete refusal: " + refusal.Kind);
     }

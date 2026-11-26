@@ -442,6 +442,27 @@ class GuardTests(unittest.TestCase):
         with self.assertRaises(suite.Refused):
             suite.base_source_save(output, REVISION)
 
+    def test_resume_refused_needs_the_changed_code_refusal_and_its_guard(self):
+        # The stand-in removed its patches (MA_OTHER_MOD_REMOVES_PATCHES=1): another mod's patch alone is
+        # accepted, so the step must see the "game's code differs" refusal, the guard and the refused save.
+        output = self.root / "resume"
+        save = output / "autosave.sav"
+        save.parent.mkdir()
+        save.write_bytes(save_bytes({"saveMajorVersion": 7, "saveMinorVersion": 39}, 764025))
+        write(output / "result.json", {"status": "passed-resume-refused"})
+        log = ("[Mixed Atmospheres] Not active on game build 764025 (the game's code differs from the supported build); nothing is patched. Details:\n"
+               "[Mixed Atmospheres] Only the verified save-load guard is installed.\n"
+               "[12:00:00.000] [1] [WARNING] [Mixed Atmospheres] Colony save refused before loading: This colony uses Mixed Atmospheres, "
+               "which is not active because the game's code differs from the supported build 764025, so it was not loaded.\n")
+        write(output / "Player.log", log)
+        checks, details = suite.resume_refused_checks(0, output, save, suite.sha256(save))
+        self.assertTrue(all(checks.values()), checks)
+        self.assertEqual(details["input_save"]["save_version"], "7.39")
+        # A mod that is active (another mod's patches are tolerated) never installs the guard.
+        write(output / "Player.log", "[Mixed Atmospheres] Game build 764025 verified: 3010 managed dependencies match the game contract.\n")
+        checks, _ = suite.resume_refused_checks(0, output, save, suite.sha256(save))
+        self.assertFalse(checks["mod_off_game_code_changed"] or checks["guard_installed"] or checks["refusal_names_cause"])
+
     def test_prepared_autosave_requires_exactly_one_rollover_save(self):
         output = self.root / "prepared"
         write(output / "result.json", {"status": "passed-colony-owner-load", "exit_code": 0, "source_revision": REVISION,

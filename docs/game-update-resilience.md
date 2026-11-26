@@ -117,9 +117,10 @@ compatible version.
    for example from a `TargetMethods()` scan that found a new native-message
    caller, removes every patch.
 5. If anything fails, the mod tears down, installs nothing more and shows a
-   player notice that names the cause ([refusals](#refusals)); a difference
-   that is only [another mod's patch](#other-mods) is told apart from a
-   changed game. The log lists every difference.
+   player notice that names the cause ([refusals](#refusals)). The log lists
+   every difference. A difference that is only [another mod's patch](#other-mods)
+   on verified code is not a failure: the mod starts and the log names the
+   patched methods.
 
 ### What replaces whole-file hashes
 
@@ -288,24 +289,42 @@ had patched those methods.
   prefix on `SaveLoader.Save` takes the flags from 0 to 8 and leaves the IL
   bytes as they were. The check runs once, in `Mod.OnLoad`, so it sees the
   patches of mods the game loaded earlier and none of those loaded later.
-- **What 1.13.6 does.** The decision is the same (the mod stays off) and its
-  statement is new. For a method that Harmony reports as patched, `Verify`
+- **What 1.13.6 did.** For a method that Harmony reports as patched, `Verify`
   compares the form without that mark as well; when it then matches, the
   difference is reported as `patched by another mod: ...` instead of
-  `changed ...`. If every difference is of that kind, the notice says that
-  the game and the mod fit together, names the mods and how many of the used
-  methods each patched, and asks the player to disable them or to report the
-  conflict (the Workshop page, the GitHub issues). A mod is named by its title
-  in the game's mod list, found through the assembly that holds the patch; a
-  mod's Harmony ID is its own choice and is written to Player.log beside it.
-  Any other difference on a supported build number gets the notice about the
-  game's code (below).
-- **Open, a user decision.** Whether the mod should run beside such mods.
-  Today that depends on the order of the mod list: the same mod loaded after
-  Mixed Atmospheres is never noticed. Accepting a difference that is only the
-  patch mark would treat both orders alike; the IL would still be verified
-  byte for byte. It would also mean running with another mod's code on a
-  method the mod calls, which is already the case for every mod loaded later.
+  `changed ...`. In 1.13.6 to 1.13.9 the mod still stayed off when every
+  difference was of that kind, with a notice that named the mods and asked
+  the player to disable them. That depended on the order of the mod list:
+  the same mod loaded after Mixed Atmospheres was never noticed. Rephysicalized
+  (Workshop item 3609531831) loaded first turned the mod off through 16
+  patched methods (`Db.Initialize`, `OxygenBreather.Sim200ms`,
+  `Storage.ConsumeAndGetDisease`, ...); loaded after it, a new colony ran
+  normally.
+- **What 1.14.0 does (user request 2026-11-26, [the rule](completion-plan.md)).** When every difference is
+  another mod's patch mark on verified code, the build is verified and the
+  mod starts. The IL of those methods is still verified byte for byte; only
+  the mark is set aside. Both orders of the mod list are treated alike, and
+  the mod runs with another mod's code on a method it calls, as it always
+  did beside a mod loaded later. There is no main-menu notice. Player.log
+  says it once, on the verified line (here with Rephysicalized loaded first):
+
+  ```text
+  [Mixed Atmospheres] Game build 764025 verified: 3010 managed dependencies match the game contract (written against build 764025) in 450 ms. 16 game methods the mod uses carry other mods' Harmony patches; their code is verified and the mod runs beside the patches:
+    ComplexFabricator.CompleteWorkingOrder <- Rephysicalized (Harmony: Rephysicalized)
+    ...
+  ```
+
+  A mod is named by its title in the game's mod list, found through the
+  assembly that holds the patch; a mod's Harmony ID is its own choice and
+  is written beside it. The same lines are kept in
+  `GameBuildCheck.OtherModPatches` and, in a development package, in
+  `integration-probe.json` (`GameContractOtherModPatches`). Any other
+  difference refuses the build with the notice about the game's code
+  (below), also when it comes together with patch marks.
+- **A patch that was removed.** Harmony keeps the mark on a method after its
+  patches are removed, and no patch then accounts for it. Such a method
+  reads as changed game code and the mod stays off (measured in the game's
+  Mono with `--other-mod removed`).
 - **How common it is.** Of 18 other Workshop mods at hand, 10 patch at least
   one of the 1,383 game methods in the contract (`Db.Initialize`,
   `MainMenu.OnSpawn`, `Game.DestroyInstances`, `ModsScreen.BuildDisplay`, ...;
@@ -314,9 +333,16 @@ had patched those methods.
   `tools/GameContractOtherMod` in the game's Mono before the check; that
   stand-in patches `SaveLoader.Save` (under two Harmony IDs),
   `CustomGameSettings.SetQualitySetting` and `LoadScreen.DoLoad`. Every
-  difference must be attributed to it and the notice must count three
-  methods. In the game, `tools/oni_headless.py run --mode menu
-  --extra-mod-first FOLDER` loads the built stand-in ahead of the package.
+  difference must be attributed to it, the build must be verified and the
+  verified line must list the three methods with the stand-in and its
+  Harmony IDs. `--other-mod removed` runs the stand-in with
+  `MA_OTHER_MOD_REMOVES_PATCHES=1`: it patches the first two methods and
+  removes its patches again, and the build must then be refused as changed
+  game code while both load entries stay verified. In the game,
+  `tools/oni_headless.py run --mode menu --extra-mod-first FOLDER` loads the
+  built stand-in ahead of the package; with a development package the run
+  passes (`passed-scoped-main-menu`) only when the mod is active, and
+  `result.json` lists the tolerated methods under `other_mod_patches`.
 - **The load guard.** While the mod is off it patches only the two ways a
   colony loads from the menu (`LoadScreen.DoLoad`, `MainMenu.ResumeGame`),
   and only when the contract verifies both as unpatched by anyone else: a
@@ -327,10 +353,12 @@ had patched those methods.
   the save file to recognise the colony, and from 1.10.1 to 1.13.7 that
   reader did not read saves of game builds 763796 and 764025
   ([1.13.8](playtest-1.13.8.md#the-save-file-reader)). Its test: the
-  stand-in with `MA_OTHER_MOD_LEAVES_LOAD=1` (it then leaves
-  `LoadScreen.DoLoad` alone) and `tools/oni_headless.py run --mode menu
-  --resume-save SAVE`, which makes the main menu resume that save; the
-  release tier runs it as `linux-resume-refused`.
+  stand-in with `MA_OTHER_MOD_REMOVES_PATCHES=1`, which keeps the mod off
+  through the mark its removed patches leave and leaves both load entries
+  alone, and `tools/oni_headless.py run --mode menu --resume-save SAVE`,
+  which makes the main menu resume that save; the release tier runs it as
+  `linux-resume-refused` and requires the refusal for changed game code,
+  the guard and the refused save.
 
 ## Refusals
 
@@ -343,8 +371,8 @@ report it.
 | --- | --- |
 | Not Windows x64 or Linux x64 (macOS, 32-bit) | Nothing patched; main-menu notice; ONI unchanged |
 | The game is a build this copy has no adapter for | Nothing patched except the verified load guard; notice names both builds and says a Mixed Atmospheres update is needed (or, for an older game, a game update) |
-| Supported build, [other mods patched](#other-mods) methods the mod uses | The same; notice says neither game nor mod is out of date, names the mods, asks to disable them or report the conflict |
-| Supported build number, but the game's code or `SimDLL` differs | The same; notice lists the first parts by short name, asks to disable other mods and verify the game's files, or to report it |
+| Supported build, and the only differences are [other mods' patches](#other-mods) on verified methods | No refusal: the mod starts; Player.log names the patched methods and the mods; no notice |
+| Supported build number, but the game's code or `SimDLL` differs (also beside other mods' patches) | Nothing patched except the verified load guard; notice lists the first parts by short name, asks to disable other mods and verify the game's files, or to report it |
 | The mod's own files do not belong together (contract missing or of another build, native library of another build) | The same; notice asks to reinstall the mod |
 | The check itself failed | The same; notice gives the error and where to report it |
 | Second copy of the mod enabled | Second copy patches nothing; notice asks the player to keep one |
@@ -359,7 +387,8 @@ dotnet run --project tools/GameContract -c Release -- generate --mod DIR \
 dotnet run --project tools/GameContract -c Release -- verify   --mod DIR --game linux-x64=ROOT --contract DIR/game-contract.json
 dotnet run --project tools/GameContract -c Release -- controls --mod DIR --game linux-x64=ROOT --contract DIR/game-contract.json
 python3 tools/game_mono_contract_check.py --mod DIR [--managed-game WINDOWS_ROOT --platform windows-x64]
-python3 tools/game_mono_contract_check.py --mod DIR --other-mod   # control: a mod that patched first
+python3 tools/game_mono_contract_check.py --mod DIR --other-mod           # control: a mod that patched first is accepted
+python3 tools/game_mono_contract_check.py --mod DIR --other-mod removed   # control: a patch removed again refuses
 python3 tools/retarget_oni.py --windows-game NEW_WINDOWS_ROOT --linux-game NEW_LINUX_ROOT \
   --managed-dir DIR [--accept-indirect] [--write-profiles --build N]
 ```

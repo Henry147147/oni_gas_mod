@@ -275,8 +275,9 @@ namespace MixedAtmospheres.Oni
         // (GameContractScope.PatchedByAMod): the text and the patched methods.
         internal sealed class ModPatched { internal string Difference = ""; internal MethodBase[] Methods = Array.Empty<MethodBase>(); }
 
-        // Such a difference still refuses the build; it is worded apart and,
-        // when `modPatched` is given, recorded there so the notice can name the mods.
+        // Such a difference is worded apart and, when `modPatched` is given,
+        // recorded there: when every difference is of that kind the build is
+        // verified (GameBuildCheck.Admit) and Player.log names the mods.
         internal static List<string> Verify(GameContractPlatform contract, Assembly mod, out int checkedEntries, List<ModPatched>? modPatched = null)
         {
             var differences = new List<string>();
@@ -360,11 +361,14 @@ namespace MixedAtmospheres.Oni
             var started = System.Diagnostics.Stopwatch.StartNew();
             var modPatched = new List<ModPatched>();
             var differences = Verify(file.Platforms[platform], typeof(GameContractCheck).Assembly, out var count, modPatched);
+            var refusal = GameBuildCheck.Admit(GameBuildCheck.RunningBuild, differences, modPatched, out var otherModPatches);
             return $"{platform} (game Mono): build {GameBuildCheck.RunningBuild}, {count} dependencies checked in {started.ElapsedMilliseconds} ms (" +
                 string.Join(", ", Timings.Select(t => t.Key + " " + ((long)t.Value).ToString() + " ms")) + $"), {differences.Count} differences" +
                 string.Concat(differences.Take(40).Select(d => "\n  " + d)) +
-                // What the player would be told (--other-mod control).
-                (differences.Count == 0 ? "" : "\nnotice:\n" + GameBuildCheck.Differences(GameBuildCheck.RunningBuild, differences, modPatched).Notice);
+                // What Mod.OnLoad would decide (--other-mod controls): the
+                // refusal's notice, or the verified build's other-mod lines.
+                (refusal != null ? "\nnotice:\n" + refusal.Notice : differences.Count == 0 ? "" :
+                    "\nverified:" + ModAdmission.OtherModPatchesLog(otherModPatches));
         }
 
         // After patching: every original this Harmony owner patched must be a

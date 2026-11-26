@@ -302,7 +302,10 @@ Since 1.13.8 the release tier also runs `linux-resume-refused`: with the mod
 kept off by a stand-in for another mod, the main menu resumes the autosave
 that `linux-one-cycle` wrote on the running game build, and the mod's guard
 must refuse it before the game loads it
-([why](game-update-resilience.md#other-mods)).
+([why](game-update-resilience.md#other-mods)). Since 1.14.0 another mod's
+patch alone no longer keeps the mod off, so the stand-in removes its patches
+again (`MA_OTHER_MOD_REMOVES_PATCHES=1`) and the step requires the refusal
+for changed game code.
 `--scenario` finds them as well. A new scenario belongs in one of the lists:
 a test compares them with the driver's scenario list. Sustained player speed still requires
 a live colony measurement. Historical-build qualification runs separately.

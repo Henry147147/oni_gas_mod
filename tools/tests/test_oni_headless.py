@@ -1635,10 +1635,20 @@ class EvidenceTests(unittest.TestCase):
         self.assertEqual(len(kept), 1)
         self.assertEqual(runner.classify("menu", refusal + other, self.probe, None, False, expected_refusals=asked), ("failed-mod-log-errors", 2))
 
+    def test_other_mods_patches_on_the_verified_line_are_no_failure(self):
+        """A mod loaded first whose patches are tolerated (--extra-mod-first): the verified line names them."""
+        verified = ("[12:00:00.000] [1] [INFO] [Mixed Atmospheres] Game build 764025 verified: 3010 managed dependencies match the game "
+                    "contract (written against build 764025) in 450 ms. 3 game methods the mod uses carry other mods' Harmony patches; "
+                    "their code is verified and the mod runs beside the patches:\n"
+                    "  CustomGameSettings.SetQualitySetting <- Other Mod Stand-in (Harmony: example.first-mod)\n"
+                    "  LoadScreen.DoLoad <- Other Mod Stand-in (Harmony: example.first-mod)\n"
+                    "  SaveLoader.Save <- Other Mod Stand-in (Harmony: example.first-mod, example.second-mod)\n")
+        self.assertEqual(runner.mod_failure_lines(verified), [])
+
     def test_a_resumed_save_passes_only_when_the_mod_refused_it_before_loading(self):
         menu = "[17:30:01.000] [1] [INFO] -- MAIN MENU -- \n"
         refused = ("[17:30:02.000] [1] [WARNING] [Mixed Atmospheres] Colony save refused before loading: This colony uses Mixed "
-                   "Atmospheres, which is not active because other mods have changed game code.\n")
+                   "Atmospheres, which is not active because the game's code differs from the supported build 764025, so it was not loaded.\n")
         self.assertEqual(runner.classify_resume(menu + refused), ("passed-resume-refused", 0))
         # The game loaded the save, or nothing happened: the reader did not recognise the colony.
         self.assertEqual(runner.classify_resume(menu), ("failed-resume-not-refused", 2))

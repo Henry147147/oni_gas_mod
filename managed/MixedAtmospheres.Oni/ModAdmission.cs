@@ -85,7 +85,6 @@ namespace MixedAtmospheres.Oni
             "\n\nThe mod has not changed the game. Colonies started with Mixed Atmospheres are untouched and can be loaded again once " + until + ".";
 
         private static string Parts(int count) => count == 1 ? "one part" : count + " parts";
-        private static string Methods(int count) => count == 1 ? "one method" : count + " methods";
 
         // "changed static SaveLoader::Save(System.String,...)System.String" as
         // "SaveLoader.Save": what fits a dialog. Player.log keeps the full form.
@@ -141,29 +140,14 @@ namespace MixedAtmospheres.Oni
             };
         }
 
-        // The build is supported and its code is the verified code, but other
-        // mods patched methods the mod depends on before it loaded. `parts`
-        // pairs each such game method with the mods that patched it.
-        internal static GameRefusal OtherMods(int build, IReadOnlyList<KeyValuePair<string, string[]>> parts)
-        {
-            var mods = parts.SelectMany(part => part.Value.Distinct(StringComparer.Ordinal)).GroupBy(name => name, StringComparer.Ordinal)
-                .OrderByDescending(group => group.Count()).ThenBy(group => group.Key, StringComparer.OrdinalIgnoreCase)
-                .Select(group => group.Key + " (" + Methods(group.Count()) + ")").ToArray();
-            return new GameRefusal
-            {
-                Kind = "other mods changed game code the mod depends on",
-                Notice = "Mixed Atmospheres is not active because " + (mods.Length == 1 ? "another mod has" : "other mods have") + " changed game code it depends on. " +
-                    "This version of Mixed Atmospheres supports your game (build " + build + "): neither is out of date.\n\n" +
-                    (parts.Count == 1 ? "One game method it uses was" : parts.Count + " game methods it uses were") + " patched by:\n" +
-                    Shown(mods, 6, "mods") + "\n\n" +
-                    "Try disabling " + (mods.Length == 1 ? "that mod" : "those mods") + " and restart the game. To use " + (mods.Length == 1 ? "it" : "them") +
-                    " together with Mixed Atmospheres, " + Report("please report the conflict") +
-                    Untouched("the conflict is gone"),
-                LoadReason = "because other mods have changed game code it depends on (the notice at the main menu names them)",
-                LoadRemedy = "Disable those mods and restart the game",
-                Details = parts.Select(part => part.Key + " <- " + string.Join(", ", part.Value)).ToArray(),
-            };
-        }
+        // Player.log only, after the verified line: game methods the mod
+        // uses that other mods' Harmony patches sit on. Each line is
+        // "Type.Method <- Mod title (Harmony: id)". The patch mark is the
+        // only difference on them, so the mod runs beside the patches, as it
+        // does beside every mod loaded after it (docs/game-update-resilience.md#other-mods).
+        internal static string OtherModPatchesLog(IReadOnlyList<string> lines) => lines.Count == 0 ? "" :
+            " " + (lines.Count == 1 ? "One game method the mod uses carries another mod's Harmony patch" : lines.Count + " game methods the mod uses carry other mods' Harmony patches") +
+            "; their code is verified and the mod runs beside the patches:" + string.Concat(lines.Select(line => "\n  " + line));
 
         // The build number is a supported one, yet the game's code is not
         // that build's and no mod's patch accounts for it: files replaced by a

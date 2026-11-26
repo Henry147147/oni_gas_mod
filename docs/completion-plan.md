@@ -8,6 +8,23 @@ still require separate authorization.
 
 Amendments:
 
+- **Running beside other mods' patches, user request 2026-11-26:** the user
+  asked to "get my mod working with the other mod: Rephysicalized ... ensure
+  they can both run and load at the same time". Rephysicalized patches 16
+  game methods the mod uses, so the request needs the decision 1.13.6 left
+  open. The rule adopted is the general one recommended then, for every mod
+  and not for Rephysicalized by name (the working session's reading of the
+  request; the user can narrow it). When the only contract difference on a supported build
+  is another mod's Harmony patch mark on verified game code (each such
+  method is one Harmony reports as patched, and its form without the mark
+  equals the contract byte for byte), the build is verified and the mod
+  starts, whatever the order of the mod list. Player.log names every such
+  method and the mods that patched it; the main menu shows no notice. Any
+  other difference still refuses the build, also when it comes together
+  with patch marks
+  ([other mods](game-update-resilience.md#other-mods)). The "other mods
+  changed game code" refusal is removed. Version 1.14.0.
+
 - **Ledger bound of the Windows runner, user decision 2026-11-25:** the
   Windows (Proton) runner accepts a colony whose lifetime mass and energy
   ledger figures are at most 1e-8; it asked 1e-12. The figures are the
