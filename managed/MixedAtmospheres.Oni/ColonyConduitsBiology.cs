@@ -230,17 +230,19 @@ namespace MixedAtmospheres.Oni
             using var hash=SHA256.Create();return BitConverter.ToString(hash.ComputeHash(bytes.ToArray())).Replace("-","");
         }
         internal static void Reset(){Enabled=false;States.Clear();Restored.Clear();keys.Clear();RowsByHandle.Clear();Births.Clear();Deaths.Clear();ColonyPipeCultureState.Reset();Ticks=UpdatedCells=UpdatedIdentities=ExpectedIdentities=Skipped=captureTicks=finishTicks=captureCalls=finishCalls=0;ColonyPipeBiologyOracle.Reset();}
-        internal static void Capture(PipeRuntimeImage image)
+        internal static void Capture(PipeRuntimeImage image,IEnumerable<PipeCellImage> cells)
         {
-            image.NativeCultures=ColonyPipeCultureState.CaptureAll();
+            image.NativeCultures=ColonyPipeCultureState.CaptureAll(cells);
+            bool HasContext((ConduitFlow Flow,int Cell) key)=>key.Flow.HasConduit(key.Cell)||
+                ColonyConduits.TryRead(key.Flow,key.Cell,out var held)&&held.Count>0;
             foreach(var item in States)
             {
-                if(item.Value.Cultures.Count==0||Restored.ContainsKey(item.Key))continue;
+                if(item.Value.Cultures.Count==0||Restored.ContainsKey(item.Key)||!HasContext(item.Key))continue;
                 image.Cultures.Add(new PipeRuntimeImage.CultureRecord{Phase=item.Key.Item1.conduitType==ConduitType.Gas?(byte)1:(byte)2,Cell=item.Key.Item2,
                     Cultures=item.Value.Cultures.Select(c=>(c.Key,c.Value.Clock)).ToArray()});
             }
             foreach(var item in Restored)
-                if(item.Value.Count>0)
+                if(item.Value.Count>0&&HasContext(item.Key))
                     image.Cultures.Add(new PipeRuntimeImage.CultureRecord{Phase=item.Key.Item1.conduitType==ConduitType.Gas?(byte)1:(byte)2,Cell=item.Key.Item2,
                         Cultures=item.Value.Select(c=>(c.Key,c.Value.Clock)).ToArray()});
             foreach(var item in Births)image.Births.Add(item.Key,item.Value);foreach(var item in Deaths)image.Deaths.Add(item.Key,item.Value);

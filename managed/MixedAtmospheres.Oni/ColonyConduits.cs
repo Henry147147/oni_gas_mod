@@ -190,7 +190,7 @@ namespace MixedAtmospheres.Oni
                     }
                     else if(cell.Inventory.Count>0)
                     {
-                        if(!HasPipeBuilding(flow.Key,i))
+                        if(PipeBuilding(flow.Key,i)==null)
                         {
                             // The owner checkpoint is already captured. Hold the fluid in
                             // the pipe image and dispatch it on the next simulation tick.
@@ -205,11 +205,11 @@ namespace MixedAtmospheres.Oni
             var diseases=new List<PipePart>();foreach(var item in DiseaseExchange)if(item.Value.Sign!=0)diseases.Add(new PipePart(item.Key,item.Value));
             return(cells.ToArray(),initial,supplied,removed,heat,diseases.ToArray());
         }
-        private static bool HasPipeBuilding(ConduitFlow flow,int cell)
+        internal static Conduit? PipeBuilding(ConduitFlow flow,int cell)
         {
             var layer=flow.conduitType==ConduitType.Gas?ObjectLayer.GasConduit:ObjectLayer.LiquidConduit;
             var building=Grid.Objects[cell,(int)layer];
-            return building!=null&&building.GetComponent<Conduit>()!=null;
+            return building!=null?building.GetComponent<Conduit>():null;
         }
         // ONI writes only its current network rows. Its ordinary loader can
         // restore packets by grid cell even before a conduit joins a network.
@@ -218,7 +218,7 @@ namespace MixedAtmospheres.Oni
             if(!Active||!Flows.TryGetValue(flow,out var state))return;
             List<(int Cell,ConduitFlow.SerializedContents Contents)>? extra=null;
             for(var i=state.Next(0);i>=0;i=state.Next(i+1))
-                if(state.Cells[i]!.Inventory.Count>0&&!flow.HasConduit(i)&&HasPipeBuilding(flow,i))
+                if(state.Cells[i]!.Inventory.Count>0&&!flow.HasConduit(i)&&PipeBuilding(flow,i)!=null)
                     (extra??=new List<(int,ConduitFlow.SerializedContents)>()).Add((i,new ConduitFlow.SerializedContents(ReadGrid(flow,i))));
             if(extra==null)return;
             var count=flow.serializedIdx?.Length??0;

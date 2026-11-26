@@ -94,7 +94,8 @@ namespace MixedAtmospheres.Oni
                     var scheduled=new HashSet<(byte,int)>();
                     foreach(var flow in runtime.NativeSchedule.Flows)
                         foreach(var cell in flow.Cells)scheduled.Add((flow.Phase,cell.Index));
-                    if(!contexts.SetEquals(scheduled))throw new InvalidDataException("Saved native conduit scheduling does not cover every biology context.");
+                    if(!scheduled.SetEquals(runtime.NativeCultures.Where(c=>!c.IsDetached).Select(c=>(c.Phase,c.Cell))))
+                        throw new InvalidDataException("Saved native conduit scheduling does not cover every biology context.");
                 }
             }
         }
