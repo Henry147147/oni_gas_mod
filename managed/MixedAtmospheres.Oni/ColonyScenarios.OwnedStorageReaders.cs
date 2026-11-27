@@ -61,7 +61,15 @@ namespace MixedAtmospheres.Oni
                     text.Contains("1E-240"),text.Replace('\n','|'));
                 foreach(var germ in before.Germs)
                     All&=text.Contains(GameUtil.GetFormattedDiseaseName((byte)germ.Id,false)+": "+germ.Mass.ToString("G6",CultureInfo.InvariantCulture));
-                Record("exact reservoir details list all fractional and minority germ identities",before.Germs.Length==3&&All,text.Replace('\n','|'));
+                // Fractional and minority identities are kept by the all-identity pipe biology. Where it cannot
+                // start (Moono: ColonyPipeRuntime.StartNotes), the game's own pipe germ update governs: the store
+                // was seen with all three identities in one run and none in another, by when that update ran
+                // before this read. The details then have to list what the store holds.
+                if(ColonyPipeBiology.Enabled)
+                    Record("exact reservoir details list all fractional and minority germ identities",before.Germs.Length==3&&All,text.Replace('\n','|'));
+                else
+                    Record("reservoir details list the germ identities the store holds (all-identity pipe biology unavailable)",
+                        ColonyPipeRuntime.StartNotes.Contains("all-identity biology unavailable")&&All,before.Germs.Length+" germ identities held; "+ColonyPipeRuntime.StartNotes+"|"+text.Replace('\n','|'));
                 for(var i=0;i<100;++i)
                     if(MixtureInspection.GetContainerInspectionText(storageReaderBuilding)!=text)throw new InvalidOperationException("Repeated exact inventory inspection changed its completed reading.");
                 Record("repeated exact storage inspection changes no inventory heat or account",ReferenceEquals(before,ColonyOwnedStorage.Inventory(storage))&&
