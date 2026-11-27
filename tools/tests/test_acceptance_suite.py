@@ -600,6 +600,9 @@ class GuardTests(unittest.TestCase):
         checks, details = suite.menu_other_mod_checks(0, output)
         self.assertTrue(all(checks.values()), checks)
         self.assertEqual(len(details["other_mod_patches"]), 1)
+        # The suite's development package passes the menu with the scoped verdict.
+        write(output / "result.json", {"status": "passed-scoped-main-menu", "other_mod_patches": ["Db.Initialize <- Rephysicalized (Harmony: Rephysicalized)"]})
+        self.assertTrue(all(suite.menu_other_mod_checks(0, output)[0].values()))
         write(output / "result.json", {"status": "failed-menu-not-active", "other_mod_patches": []})
         checks, _ = suite.menu_other_mod_checks(2, output)
         self.assertEqual(checks, {"harness_pass": False, "mod_active": False, "other_mod_patches_named": False})

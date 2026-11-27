@@ -1284,10 +1284,15 @@ def cross_save_checks(rc: int, output: Path, source_run: Path, save: Path, save_
                     "written_by": {"release": (source.get("moono_player") or {}).get("release"), "run": str(source_run)}}}
 
 
+# The harness's two passing menu verdicts: a release folder shows the mod active in the log; a development
+# package, which the suite's own Linux steps use, also passes its integration probe at the menu.
+MENU_ACTIVE = ("passed-menu-active", "passed-scoped-main-menu")
+
+
 def menu_other_mod_checks(rc: int, output: Path) -> tuple[dict, dict]:
     result = read_json(output / "result.json")
     patches = result.get("other_mod_patches") or []
-    checks = {"harness_pass": rc == 0, "mod_active": result.get("status") == "passed-menu-active",
+    checks = {"harness_pass": rc == 0, "mod_active": result.get("status") in MENU_ACTIVE,
               "other_mod_patches_named": bool(patches)}
     return checks, {"classification": result.get("status"), "other_mod_patches": patches,
                     "mod_failure_lines": result.get("mod_failure_lines")}
