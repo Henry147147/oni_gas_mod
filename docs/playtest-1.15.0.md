@@ -138,6 +138,10 @@ How Moono is detected, checked and tolerated is documented in
 
 - **Windows with Moono** cannot be tested here. Moono's Windows player is
   not expected to run under Proton, so that side needs the user's PC.
+- **Rephysicalized above the mod on Windows.** Under Proton Rephysicalized
+  then fails to load, from the Harmony allocation error the mod guards
+  against only after its own load. With the mod above Rephysicalized both
+  load ([runs](#rephysicalized-first-on-the-windows-build)).
 - **Moono releases** change often and are not pinned. The tested release is
   2026.11.26.02. A later one is supported for as long as its files and
   members meet the rule above, and the offline counts are those of this
@@ -288,22 +292,50 @@ ok   trim-anim-lists: 4484 lists trimmed, 72.3 MB freed, 0 differed
 
 ## Staged package
 
-PENDING(release chain): `artifacts/v1.15.0/accept-pre.sh` up to staging, then
-`accept-post.sh`, on the cut revision. Nothing is uploaded.
+Revision `48fa61e` on game build 764961: `artifacts/v1.15.0/accept-pre.sh` up to staging, then
+`accept-post.sh`. Evidence is under `artifacts/v1.15.0/48fa61e` and `artifacts/acceptance/48fa61e`.
+The folder is staged on hold. Nothing is uploaded.
 
 | Step | Result |
 | --- | --- |
-| Builds: Linux for Ubuntu 22.04, the Windows build, the Linux build | PENDING |
-| Package for game builds 744825, 763796 and 764025 | PENDING |
-| Archive verification | PENDING |
-| Five of the user's share saves (Cycles 130, 128, 70, 44, 33) with their seven other mods, Unity's player, release folder | PENDING |
-| Rephysicalized on the release folder, Unity's player, 6 runs: main menu with it first; new colonies with it first and after it; the two-mod save reloaded; the element notices for the Cycle 130 save with it and for the two-mod save without it | PENDING |
-| Moono with its default tweaks on the release folder, 5 runs: new colony; with Rephysicalized first; a save of Unity's player; the Cycle 130 save with the seven mods; without a window | PENDING |
-| Two controls: the mod-off stand-in (its patches removed) refuses the Cycle 128 save; the stand-in's patches are accepted | PENDING |
-| The Cycle 130 save with the seven mods, Windows build under Proton | PENDING |
-| A new colony with Rephysicalized first, Windows build under Proton | PENDING |
-| Stage, Workshop dry run | PENDING |
-| Load matrix (the three game builds, Linux and Windows under Proton) | PENDING |
-| Patch tier on the three platforms with the batches of `rephysicalized`, `message-edges` and `building-emitter` | PENDING |
+| Builds: Linux for Ubuntu 22.04, the Windows build, the Linux build | passed |
+| Package for game builds 744825, 763796, 764025 and 764961 | passed |
+| Archive verification | passed |
+| Five of the user's share saves (Cycles 130, 128, 70, 44, 33) with their seven other mods, Unity's player, release folder | 5 of 5 |
+| Rephysicalized on the release folder, Unity's player, 6 runs: main menu with it first; new colonies with it first and after it; the two-mod save reloaded; the element notices for the Cycle 130 save with it and for the two-mod save without it | 6 of 6 |
+| Moono with its default tweaks on the release folder, 5 runs: new colony; with Rephysicalized first; a save of Unity's player; the Cycle 130 save with the seven mods; without a window | 5 of 5 |
+| Two controls: the mod-off stand-in (its patches removed) refuses the Cycle 128 save; the stand-in's patches are accepted | 2 of 2 |
+| The Cycle 130 save with the seven mods, Windows build under Proton | passed-colony-owner-load at owner frame 387,121; ledgers 2.8e-12 mass, 7.8e-14 energy |
+| A new colony with Rephysicalized after the mod, Windows build under Proton (`runs/w1/after`) | passed-colony-owner |
+| A new colony with Rephysicalized first, Windows build under Proton (`windows-rp`, `runs/w1/first-again`) | failed twice: Rephysicalized does not load, [below](#rephysicalized-first-on-the-windows-build) |
+| Stage, Workshop dry run | staged on hold; dry run passed |
+| Load matrix (the four game builds, Linux and Windows under Proton) | 8 of 8 |
+| Patch tier on the three platforms with the batches of `rephysicalized`, `message-edges` and `building-emitter` | 14 of 14 steps |
 | The other ten share saves (Cycles 129 to 121, 55, 49) with their seven mods, Unity's player, release folder | PENDING |
 | Release tier on the three platforms (`--platform all`, 184 steps): every Linux game step on Unity's player and its Moono twin, the Rephysicalized steps and their twins, the six Moono-only steps, the Windows steps under Proton | PENDING |
+
+### Rephysicalized first on the Windows build
+
+With Rephysicalized above the mod in the list, the Windows player under Proton
+reports "Exception while loading mod Rephysicalized": a `NullReferenceException`
+at the first instruction of `System.Enum.ToString()`, raised inside
+Rephysicalized's own `PatchAll` before the mod's assemblies are loaded.
+Rephysicalized patches `Enum.ToString()` and `Enum.Parse` to name its elements.
+The fault is the [positioned allocation error](playtest-1.12.2.2.md#ration-box-crash)
+of the Harmony library the game ships: the mod's guard for it is installed in
+the mod's own `OnLoad`, so it protects only the mods loaded after it.
+
+| Run on the Windows build under Proton, new Spaced Out! colony (`artifacts/v1.15.0/runs`) | Result |
+| --- | --- |
+| Rephysicalized, then the mod (`w1/first-again`) | Rephysicalized fails to load |
+| The 1.13.12 package in the same order (`w4/v11312-rp-first`) | the same failure |
+| Bigger Camera Zoom Out, Rephysicalized, then the mod (`w4/zoom-then-rp-first`) | the same failure |
+| The mod, then Rephysicalized (`w1/after`) | passed-colony-owner; both compatibility patches installed |
+| A test mod holding only the guard, Rephysicalized, then the mod (`w5/guard-then-rp-first`) | passed-colony-owner; the guard rejected four positioned allocations at address zero while Rephysicalized loaded; both compatibility patches installed |
+| A test mod with only a prefix on `Enum.ToString()`, then the mod (`w4/enumprobe-first`) | passed-colony-owner: the patch alone does not fault |
+
+The last two rows show the cause and that 1.15.0 runs with Rephysicalized in
+either order on the Windows build once the allocation error is out of the way.
+The error has been seen under Proton only. Whether a Windows PC can show it is
+not known. The mod cannot guard a mod that loads before it. A player who meets
+it puts Mixed Atmospheres above Rephysicalized. On Linux both orders load.
