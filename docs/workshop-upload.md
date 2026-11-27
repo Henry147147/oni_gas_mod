@@ -59,6 +59,7 @@ Uploads so far:
 | 2026-11-25 20:02 | 1.13.9 | `6458df3` | uploaded with `tools/workshop.py` at the user's request of that day; `UPLOADED AND VERIFIED`, and `status --package` agrees file for file |
 | 2026-11-26 21:47 | 1.13.10 | `32f6aca` | uploaded with `tools/workshop.py` by another session; the record of the 1.13.11 upload names it as the file it replaced |
 | 2026-11-27 00:11 | 1.13.11 | `e09397d` | uploaded with `tools/workshop.py` at the user's request of 2026-11-26; the published file agrees with the release folder file for file |
+| 2026-11-27 01:44 | 1.13.12 | `2fa5374` | uploaded with `tools/workshop.py` at the user's go-ahead of that day, from `origin/release/1.13`; the published file agrees with the release folder file for file |
 
 The first four were uploaded by the user with Klei's uploader; this project's
 record does not say how 1.12.2.3 and 1.13.3 were uploaded (1.13.3 went up
@@ -69,7 +70,8 @@ uploaded; 1.13.8 contains it. Add a line for each later upload.
 ## Uploading a version
 
 1. **Stage the release folder**: an unmarked `tools/package_release.py` package
-   ([distribution](distribution.md#release-folder)) of a pushed revision, on
+   ([distribution](distribution.md#release-folder)) of a pushed revision (on
+   `origin/main` or a release line `origin/release/*`), on
    the share under `releases/<version>/MixedAtmospheres`. A release test
    (`--release-test`) is refused.
 2. **Write the change note** players will see on the item's Change Notes tab,

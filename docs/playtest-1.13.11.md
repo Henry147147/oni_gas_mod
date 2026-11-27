@@ -131,7 +131,7 @@ with the release folder file for file.
 | Five of the user's share saves (Cycles 130, 128, 70, 44, 33) on the release folder with the seven other mods, Linux game 764961 | 5 of 5 |
 | The Cycle 130 save with the seven mods, Windows game 764961 under Proton, release folder | loads and runs (387,121 frames; mass error 2.76e-12, energy 7.8e-14) |
 | A new Spaced Out! colony, Windows game 764961 under Proton, release folder, 600 ticks | passed |
-| Load matrix (the three older game builds, Linux and Windows under Proton) | PENDING(load matrix): runs after the upload |
+| Load matrix (744825, 763796, 764025 and 764961, Linux and Windows under Proton), after the upload | all eight players passed |
 
 Not run, at the user's request for speed: the acceptance tiers.
 

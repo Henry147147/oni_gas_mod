@@ -77,10 +77,46 @@ in [tolerated newer builds](game-update-resilience.md#tolerated-newer-builds).
   build with its identity test under Wine; the Python suite (613 tests, 11
   skipped for absent inputs, plus the harness's newer-game control);
   `tools/DistributionTests` 101 checks.
-- In the game, the four-build development packages on 764961 and 764025
-  (Linux player, Windows player under Proton): PENDING.
-- In the game, the positive control (newest adapter 763796 on the 764025
-  game, `--newer-game-control`): PENDING.
-- In the game, the negative control (newest adapter 764025 on the 764961
-  game): PENDING.
-- The release packager and the release steps: PENDING.
+
+## In the game
+
+Development packages of this source (`pkg-11312a`, `b`, `c`; runs under
+`artifacts/v1.13.12/runs/`), all as expected:
+
+| Run | Package and game | Result |
+| --- | --- | --- |
+| a-menu-764961, a-colony-764961 | four-build package, Linux 764961 | passed |
+| a-c130-764961 | the same, the user's Cycle 130 save with their seven other mods | passed |
+| wa-colony-764961 | four-build package, Windows 764961 under Proton | passed: "Game build 764961 verified…", "Game SimDLL verified (the image of build 764961, identity a8a354e443d5f558)" |
+| b-menu-accept, b-colony-accept | newest adapter 763796 on the Linux 764025 game (`--newer-game-control`) | passed: "Game build 764025 is newer than the build this version was checked against (763796); every part of the game the mod uses is unchanged (3020 managed dependencies checked in 649 ms); 7 entries differ only by the build number", then "Game SimDLL verified (the image of build 744825, identity ea43224a4c4b64d5)" (the Linux library is the same file on every build) |
+| wb-colony-carried | the same on the Windows 764025 game under Proton | passed: "Game SimDLL carried from the verified image of build 763796 (identity 9ae5bfd7649c3c53; it differs only in the revision constant at RVA 0x4f931, 4 bytes, and the Authenticode signature; revision-masked identity 1f266c5b6c9fb87c)" |
+| c-menu-refuse | newest adapter 764025 on the Linux 764961 game | refused naming `SelectToolHoverTextCard.UpdateHoverElements`; "Only the verified save-load guard is installed." (harness status failed-integration-probe, the expected outcome) |
+| c-resume-refuse | the same, resuming a Cycle 128 save | passed-resume-refused: the save was refused before loading ("…not active on this version of Oxygen Not Included (build 764961)… Install a Mixed Atmospheres update for this game version…") |
+| wc-menu-refuse | the same on the Windows 764961 game under Proton | refused naming the same method |
+
+## Release
+
+Released from `2fa5374` (`origin/release/1.13`: the rule `b3693d2`, version
+`a8341d5`, and an upload-tool fix that counts a revision on a release line as
+pushed work).
+
+| Step, on `2fa5374`, before the upload | Result |
+| --- | --- |
+| Release builds: Linux compatibility build, the suite's Linux and Windows builds (Windows imports system libraries only) | passed |
+| Package for game builds 744825, 763796, 764025 and 764961, archive verification | passed: `MixedAtmospheres-1.13.12.zip`, 32,137,473 bytes, SHA-256 `a40860f6…7add`, 48 files verified; Workshop file 32,135,841 bytes, SHA-256 `e0f66de0…ad65` |
+| Release folder, Linux game 764961: a new Spaced Out! colony and a new base-game colony, 600 ticks at speed 3, saved | 2 of 2 |
+| Five of the user's share saves (Cycles 130, 128, 70, 44, 33) on the release folder with the seven other mods, Linux game 764961 | 5 of 5 |
+| The Cycle 130 save with the seven mods, Windows game 764961 under Proton, release folder | loads and runs (mass error 2.76e-12, energy 7.8e-14) |
+| A new Spaced Out! colony, Windows game 764961 under Proton, release folder, 600 ticks | passed |
+| Staged on the share (`releases/1.13.12`, `publish/update-1.13.12`), Workshop dry run | passed |
+
+Uploaded with `tools/workshop.py` on 2026-11-27 at 01:44:29 UTC, at the
+user's go-ahead of that day ("once complete, please upload", given after the
+difference between 1.13.11 and 1.13.12 was explained), in an online window of
+the private Steam client with the game slot held; the client went back to
+Offline Mode. The published file agrees with the release folder file for file
+(record `artifacts/v1.13.12/2fa5374/workshop-upload/record.json`).
+
+Not run for 1.13.12: the acceptance tiers, and the load matrix over the older
+game builds (it ran for 1.13.11's package, [all eight players
+passed](playtest-1.13.11.md)).
