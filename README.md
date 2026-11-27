@@ -10,7 +10,7 @@ Plan sustainable oxygen production early. CO₂ still displaces oxygen, so an ox
 
 Other mods can push air through the solver: since 1.13.0 a mod can put a fan's force on a tile face through a small public interface, and the gas then moves, piles up and stalls as the physics says. [Face forces](docs/face-forces.md) describes it; [Mixed Atmospheres: Fans](../oni_fan_mod) is the first mod built on it. Since 1.14.0 the mod runs beside other mods that patch the game methods it uses, and with [Rephysicalized](docs/colony-owner.md#other-mods-rephysicalized), whose oxygen intake it adapts. Since 1.15.0 it also runs under [Moono](docs/game-update-resilience.md#moono), the replacement player that runs the game on .NET (tested on Linux).
 
-Mixed Atmospheres is a private playtest build for Windows x64 and Linux. It applies to new base-game and Spaced Out! colonies, ONI builds 744825, 763796 and 764025, licensed through Steam. Spaced Out! can remain enabled; keep the other gameplay packs disabled for this playtest. Existing vanilla saves keep their vanilla simulation. The Windows build has been tested under Proton; Windows validation is part of your own playtest. Final release-candidate acceptance is still in progress, so this is preparation for private playtesting, not a public release. There is no Workshop release.
+Mixed Atmospheres is a private playtest build for Windows x64 and Linux. It applies to new base-game and Spaced Out! colonies, ONI builds 744825, 763796, 764025 and 764961, licensed through Steam. Spaced Out! can remain enabled; keep the other gameplay packs disabled for this playtest. Existing vanilla saves keep their vanilla simulation. The Windows build has been tested under Proton; Windows validation is part of your own playtest. Final release-candidate acceptance is still in progress, so this is preparation for private playtesting, not a public release. There is no Workshop release.
 
 ![Mixed Atmospheres gameplay during development](docs/images/mixed-atmospheres-gameplay.png)
 
@@ -60,7 +60,7 @@ which is not met yet. What works and what is open is in
 
 ## Playing
 
-You need your own licensed Linux ONI (build 764025) from Steam, and the build
+You need your own licensed Linux ONI (build 764961) from Steam, and the build
 requirements below.
 
 1. Build and package (adjust the game path to your Steam library):

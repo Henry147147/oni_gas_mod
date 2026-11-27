@@ -13,6 +13,10 @@
                 WindowsManaged="96b192e45e044aa591e7143bbe1126d685dd1a195db7ba1632fdf4abd8fe3036"
                 LinuxManaged="39dc204f0ec52e9e6af2f2c65fec27b6b928fa6d362e041c6592501f4925ae07"
                 WindowsNative="02c18a626fd10b7253792a3f0e6e361d8ff54ba1db020b2c6af96b83c86f8bfd" />
+    <OniRelease Include="764961"
+                WindowsManaged="308bd6aeea29266010c2b34bb336ca9fb11612b554f33c8aca7ee213b96a11a0"
+                LinuxManaged="51aafd6c2857e997daaf154ea0ac0f4db9b4520fb8872bc92333f9086e933d9a"
+                WindowsNative="e680b9aca8516f4456e7a456f29c5a7bc456117c180555406e2b3aa4bcb3eda4" />
   </ItemGroup>
   <Target Name="SelectOniApi" BeforeTargets="CoreCompile">
     <GetFileHash Files="$(OniManagedDir)/Assembly-CSharp.dll">

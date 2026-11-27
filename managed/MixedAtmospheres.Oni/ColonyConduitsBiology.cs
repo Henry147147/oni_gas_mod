@@ -213,9 +213,15 @@ namespace MixedAtmospheres.Oni
         // are reproduced from the assemblies on disk, docs/game-update-resilience.md).
         internal const string ExpectedSchedulingSignature763796="C1382C8AB2E19F8AFF6A318A6D867BA4D110C92C4D415806E6B1B9559B942D4A";
         internal const string ExpectedWindowsSchedulingSignature763796="390E13AF521FEEE37A02DE1EBE9F8E132B82D8733ADA51CA4167014689D5E631";
+        // ONI 764961: on both platforms the five bodies are identical to 764025's
+        // with their tokens resolved (ilspycmd IL); only metadata tokens moved.
+        // 764025 kept 763796's raw IL, so it needs no signature of its own.
+        internal const string ExpectedSchedulingSignature764961="B9CA816F01471B669B660CD0274D6BEEBBBCD079E728D5C0EADDEA28690CC43F";
+        internal const string ExpectedWindowsSchedulingSignature764961="DEB759C7852FBC5B23EFEB566353072F16BD02F068CBFB87F8E144B5AEE91CCE";
         internal static bool IsSupportedSchedulingSignature(string signature)=>
             signature==ExpectedSchedulingSignature||signature==ExpectedWindowsSchedulingSignature||
-            signature==ExpectedSchedulingSignature763796||signature==ExpectedWindowsSchedulingSignature763796;
+            signature==ExpectedSchedulingSignature763796||signature==ExpectedWindowsSchedulingSignature763796||
+            signature==ExpectedSchedulingSignature764961||signature==ExpectedWindowsSchedulingSignature764961;
         internal static string SchedulingSignature()
         {
             using var bytes=new MemoryStream();using(var writer=new BinaryWriter(bytes,System.Text.Encoding.UTF8,true))

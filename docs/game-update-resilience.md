@@ -2,7 +2,8 @@
 
 ## Supported builds in 1.11.0
 
-One installation serves ONI 744825, 763796 and 764025 on Windows and Linux x64.
+One installation serves ONI 744825, 763796 and 764025 on Windows and Linux x64
+(1.13.11 adds 764961).
 The package root targets the newest build. Every earlier build has a complete
 loadable content folder under `archived_versions/<build>/`. ONI selects the
 highest eligible `minimumSupportedBuild`. The selected adapter checks its
@@ -294,6 +295,43 @@ differences; [1.10.2](playtest-1.10.2.md) is the retarget. What it showed:
   (`download_depot 457140 457141`, `download_depot 457140 1452491`); then
   it goes back to Offline Mode. The copies on the share are renamed so that
   the default folders hold the new build and `-763796` the previous one.
+
+## Build 764961 (2026-11-26)
+
+The first update after one package began to carry several builds. 1.13.10
+(744825, 763796, 764025) refused it; [1.13.11](playtest-1.13.11.md) adds it
+as a fourth row of the registry. What it showed:
+
+- **A real change in a patch target.** Besides the seven build-number
+  differences, `SelectToolHoverTextCard.UpdateHoverElements` changed: the
+  backwall block left the cell block. The mod's transpiler on it checks its
+  own anchors and still found each of them exactly once, so the same source
+  serves all four builds. A tolerance that masked only the build number
+  would still have refused this update: telling a harmless change in a
+  patched body from a breaking one needs either the IL read by a person, as
+  here, or a check of the patch's own anchors.
+- **The pipe biology signature moved although the five bodies did not.**
+  764025 kept 763796's raw IL; 764961 shifted the metadata tokens. The
+  signature is reproduced from the assemblies on disk with a small
+  reflection program (`GetMethodBody().GetILAsByteArray()` over the five
+  methods, hashed as `ColonyPipeBiology.SchedulingSignature` does), and the
+  resolved IL of the five bodies is compared with `ilspycmd -il` before the
+  value is accepted.
+- **Klei signs its Windows files from this build on.** Every Windows DLL
+  carries an appended Authenticode certificate, so every whole-file hash
+  changed, also of files whose code did not (`Assembly-CSharp-firstpass`,
+  the Unity and framework assemblies). The registry's whole-file hashes and
+  the native image identity (which zeroes stamps and the checksum but
+  covers the certificate directory and the appended certificate) therefore
+  change with every signed build even where nothing else does.
+- **Native.** Linux: the same `libSimDLL.so` again; no profile is needed.
+  Windows: 41 bytes besides the signature, the stamps and the constant of
+  `AppVersion::GetRevision`; carried with `--accept-indirect` as before, and
+  the chunk-heat procedure at the same RVA.
+- **Names on the share.** The default folders hold the newest build and the
+  previous builds get `-<build>` (`mod_identity.reference_installation`):
+  `OxygenNotIncluded-linux` and `OxygenNotIncluded` are 764961,
+  `…-linux-764025` and `…-764025` the previous build.
 
 ## Other mods
 
