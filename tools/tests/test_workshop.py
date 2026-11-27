@@ -321,7 +321,7 @@ class Upload(unittest.TestCase):
         (self.new.parent / "HOLD.txt").unlink()
         with mock.patch.object(WORKSHOP, "revision_pushed", return_value=False):
             code, text = self.run_upload(*self.EXECUTE)
-        self.assertEqual(code, 2); self.assertIn("not on origin/main", text)
+        self.assertEqual(code, 2); self.assertIn("not on origin/main or an origin/release branch", text)
         with mock.patch.object(WORKSHOP, "game_running", return_value=True):
             code, text = self.run_upload(*self.EXECUTE)
         self.assertEqual(code, 2); self.assertIn("ONI process is running", text)

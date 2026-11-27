@@ -457,8 +457,13 @@ def steam_readiness(client, item: int, record: dict | None, size: int, uploader:
 
 
 def revision_pushed(revision: str) -> bool:
-    return subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", revision, "origin/main"],
-                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+    """Whether the revision is pushed work: on origin/main, or on a release line origin/release/*
+    (a hotfix of the released version is cut from its release branch while main carries later work)."""
+    refs = subprocess.run(["git", "-C", str(ROOT), "for-each-ref", "--format=%(refname:short)", "refs/remotes/origin/release"],
+                          capture_output=True, text=True).stdout.split()
+    return any(subprocess.run(["git", "-C", str(ROOT), "merge-base", "--is-ancestor", revision, ref],
+                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
+               for ref in ["origin/main", *refs])
 
 
 def game_running() -> bool:
@@ -558,7 +563,7 @@ def command_upload(args) -> int:
         raise Refused(f"The Workshop serves {live}, which is not older than {version}. "
                       "Going back to an earlier release is a deliberate step: --replace-newer")
     if not revision_pushed(manifest["source_revision"]):
-        raise Refused(f"Revision {manifest['source_revision'][:7]} is not on origin/main (fetch first): only pushed work is uploaded")
+        raise Refused(f"Revision {manifest['source_revision'][:7]} is not on origin/main or an origin/release branch (fetch first): only pushed work is uploaded")
     archive = folder / mod_identity.WORKSHOP_FILE
     archive.unlink(missing_ok=True)
     digest = write_upload_zip(package, manifest, archive)

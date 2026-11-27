@@ -121,7 +121,7 @@ published files) is written to `artifacts/workshop/<time>-<version>` unless
   file that differs from the manifest, an extra or missing file, a development
   or validation file, a `mod_info.yaml` that does not state the version for
   each supported game build.
-- A revision that is not on `origin/main`.
+- A revision that is on neither `origin/main` nor a release line `origin/release/*` (a hotfix of the released version is cut from its release branch while main carries later work).
 - A version that is not newer than the published one, unless `--replace-newer`
   is given. Going back to the previous release after a bad upload is that
   case: upload its kept folder with `--replace-newer` and a change note that
