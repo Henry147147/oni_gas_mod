@@ -357,6 +357,11 @@ three platforms passed. Step counts in 1.15.0:
 | quick | 26 | 20 | 26 (build and 25 twins) | 46 | 71 |
 | release | 80 | 20 | 85 (build, 78 twins, 6 Moono-only) | 100 | 184 |
 
+A twin's batch leaves out `mixed-pipe-all-germs`
+(`MOONO_EXCLUDED_SCENARIOS`): the all-identity pipe biology
+[does not start under Moono](playtest-1.15.0.md#left-as-they-are), where play
+keeps the shown germ with a warning.
+
 The release tier adds six steps that only Moono has:
 
 - **`moono-refused-guard`.** A refused mod's load guard, with a cause CoreCLR

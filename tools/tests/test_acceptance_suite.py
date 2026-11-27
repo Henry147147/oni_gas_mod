@@ -85,12 +85,20 @@ class PlanTests(unittest.TestCase):
             expected = [s for s in games if s.kind not in suite.MOONO_EXCLUDED]
             self.assertEqual(names(twins), ["moono-" + s.name[len("linux-"):] for s in expected])
             for original, twin in zip(expected, twins):
-                self.assertEqual((twin.kind, twin.options), (original.kind, original.options))
+                # A batch twin leaves out the scenarios Moono cannot run, each listed with its reason.
+                options = original.options
+                if original.kind == "batch":
+                    options = {**options, "scenario": ",".join(n for n in options["scenario"].split(",") if n not in suite.MOONO_EXCLUDED_SCENARIOS)}
+                self.assertEqual((twin.kind, twin.options), (original.kind, options))
                 self.assertEqual(twin.deps, tuple(d if d == "linux-build" else "moono-" + d[len("linux-"):] for d in original.deps))
             # Every Linux game step is either repeated or listed with its reason.
             left = {s.kind for s in games} - {s.kind for s in twins}
             self.assertEqual(left, set(suite.MOONO_EXCLUDED) & {s.kind for s in games})
             self.assertTrue(all(len(reason) > 40 for reason in suite.MOONO_EXCLUDED.values()))
+            self.assertTrue(all(len(reason) > 40 for reason in suite.MOONO_EXCLUDED_SCENARIOS.values()))
+            if tier == "release":
+                scenarios = lambda steps: {n for s in steps if s.kind == "batch" for n in s.options["scenario"].split(",")}
+                self.assertEqual(scenarios(games) - scenarios(twins), set(suite.MOONO_EXCLUDED_SCENARIOS))
         release = suite.plan("release", suite.PLATFORM_CHOICES["all"])
         self.assertEqual(len(set(names(release))), len(release))
         self.assertEqual(names(suite.plan("release", ("linux", "windows"))), names(suite.plan("release")))

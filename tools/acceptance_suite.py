@@ -216,6 +216,13 @@ MOONO_EXCLUDED = {
                       "Under Moono's CoreCLR the flag is not part of what reflection reports (inferred, not measured), "
                       "so the build would verify and nothing be refused; the step would test nothing",
 }
+# Scenarios a Moono twin leaves out of its batch, and why (docs/performance-acceptance.md#moono).
+MOONO_EXCLUDED_SCENARIOS = {
+    "mixed-pipe-all-germs": "it turns on the all-identity pipe biology, which needs the game's pipe step in the form "
+                            "the mod verified; the signature is over that step's raw IL, which Moono does not keep, so "
+                            "the mode refuses to start there and play keeps the shown germ with a warning "
+                            "(docs/playtest-1.15.0.md#left-as-they-are)",
+}
 FORBIDDEN_DLL_IMPORTS = ("libstdc++", "libgcc", "libwinpthread")
 
 # The explicit non-default colony preset of the WindowsPlayer settings control.
@@ -317,10 +324,17 @@ def moono_twins(steps: list[Step]) -> list[Step]:
     on the Linux package; a dependency on another Linux game step becomes its twin."""
     def twin(name: str) -> str:
         return "moono-" + name[len("linux-"):]
-    return [Step(twin(step.name), "moono", step.kind,
-                 tuple(dep if dep == "linux-build" else twin(dep) for dep in step.deps), step.options)
-            for step in steps if step.platform == "linux" and step.kind not in ("build", "offline")
-            and step.kind not in MOONO_EXCLUDED]
+
+    def options(step: Step) -> dict:
+        if step.kind != "batch":
+            return step.options
+        kept = [name for name in step.options["scenario"].split(",") if name not in MOONO_EXCLUDED_SCENARIOS]
+        return {**step.options, "scenario": ",".join(kept)}
+    twins = [Step(twin(step.name), "moono", step.kind,
+                  tuple(dep if dep == "linux-build" else twin(dep) for dep in step.deps), options(step))
+             for step in steps if step.platform == "linux" and step.kind not in ("build", "offline")
+             and step.kind not in MOONO_EXCLUDED]
+    return [step for step in twins if step.kind != "batch" or step.options["scenario"]]
 
 
 # Release-tier steps that only Moono has (docs/performance-acceptance.md#moono).
