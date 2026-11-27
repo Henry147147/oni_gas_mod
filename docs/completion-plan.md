@@ -8,6 +8,23 @@ still require separate authorization.
 
 Amendments:
 
+- **Newer game builds that change nothing the mod uses, user decision
+  2026-11-26:** "please also make the mod not fail on update if nothing
+  the mod touches is changed. work on this ASAP and prioritize it over the
+  new features." A game build newer than the newest one a package supports
+  is accepted when every managed dependency is unchanged once the build
+  number is read as a placeholder in both the contract and the game, and
+  the game's `SimDLL` is a verified image, or equal to one apart from the
+  constant `AppVersion::GetRevision` returns and the Authenticode signature.
+  Any other difference keeps the mod off, and the notice says that a Mixed
+  Atmospheres update is needed and names what changed. Older builds and
+  builds between two supported ones stay refused by their number. The
+  verified-only rule of earlier versions is replaced for newer builds
+  ([tolerated newer builds](game-update-resilience.md#tolerated-newer-builds)).
+  The rule applies to Unity's player; on Moono a newer build is refused
+  with the update notice (1.15.0 merge, see
+  [Moono](game-update-resilience.md#moono-and-newer-builds)).
+
 - **Moono, user request 2026-11-26:** the user asked to "add support for
   https://github.com/tigin-backwards/oni-moono#setup, you will likely have
   to double the testing to cover with and without moono", as version 1.15.0.

@@ -77,9 +77,25 @@ namespace MixedAtmospheres.Oni
                 named[entry.Key] = entry;
             });
             platform.Entries.AddRange(named.Values);
+            // The build-number reading of every entry whose form holds this
+            // build's number (docs/game-update-resilience.md#tolerated-newer-builds).
+            foreach (var entry in platform.Entries)
+            {
+                var masked = Find(entry, module, null, gameBuild).Value;
+                if (masked != entry.Value) entry.BuildMasked = masked;
+            }
             foreach (var target in targets.OrderBy(GameContractCanon.Method, StringComparer.Ordinal))
-                platform.Entries.Add(new GameContractEntry { Kind = GameContractScope.Kind_Patched, Key = GameContractCanon.Method(target), Value = GameContractCanon.Body(target) });
-            if (!raw) foreach (var entry in platform.Entries) { entry.Value = GameContractCanon.Compact(entry.Value); entry.Shape = GameContractCanon.Compact(entry.Shape); }
+            {
+                var entry = new GameContractEntry { Kind = GameContractScope.Kind_Patched, Key = GameContractCanon.Method(target), Value = GameContractCanon.Body(target) };
+                var masked = GameContractCanon.Body(target, 0, gameBuild);
+                if (masked != entry.Value) entry.BuildMasked = masked;
+                platform.Entries.Add(entry);
+            }
+            if (!raw) foreach (var entry in platform.Entries)
+            {
+                entry.Value = GameContractCanon.Compact(entry.Value); entry.Shape = GameContractCanon.Compact(entry.Shape);
+                if (entry.BuildMasked.Length != 0) entry.BuildMasked = GameContractCanon.Compact(entry.BuildMasked);
+            }
             return platform.ToJson();
         }
 
@@ -163,11 +179,11 @@ namespace MixedAtmospheres.Oni
         private const string AllMembers = "*";
         private static bool IsMemberName(string text) => System.Text.RegularExpressions.Regex.IsMatch(text, @"^[A-Za-z_<][A-Za-z0-9_`<>$]*$");
 
-        private static (string key, string value) Named(Type type, string name) => name.Length == 0
-            ? ("named " + GameContractCanon.Type(type), GameContractScope.TypeValue(type))
+        private static (string key, string value) Named(Type type, string name, int build = 0) => name.Length == 0
+            ? ("named " + GameContractCanon.Type(type), GameContractScope.TypeValue(type, build))
             : name == AllMembers ? ("named " + GameContractCanon.Type(type) + "::*", GameContractCanon.Hash(string.Join("\n",
                 GameContractScope.GameMembers(type).Select(GameContractCanon.Member).OrderBy(m => m, StringComparer.Ordinal))))
-            : ("named " + GameContractCanon.Type(type) + "::" + name, GameContractScope.NamedValue(type, name));
+            : ("named " + GameContractCanon.Type(type) + "::" + name, GameContractScope.NamedValue(type, name, false, build));
 
         private sealed class Site { internal int Token; internal string TypeName = "", Name = ""; }
 
@@ -381,14 +397,15 @@ namespace MixedAtmospheres.Oni
             internal Func<Func<Assembly, bool>, string?>? Shape;
         }
 
-        private static Found Find(GameContractEntry entry, Module module, KeyIndex? index)
+        // `build`: the build-number reading of every value (GameContractCanon.BuildMark), 0 for the exact forms.
+        private static Found Find(GameContractEntry entry, Module module, KeyIndex? index, int build = 0)
         {
             var found = new Found();
             switch (entry.Kind)
             {
                 case GameContractScope.Kind_Type:
                     var type = index != null ? index.Type(entry.Key) : module.ResolveType(entry.Token);
-                    found.Key = GameContractCanon.Type(type); found.Value = GameContractScope.TypeValue(type);
+                    found.Key = GameContractCanon.Type(type); found.Value = GameContractScope.TypeValue(type, build);
                     found.Home = GameContractScope.Home(type);
                     break;
                 case GameContractScope.Kind_Member:
@@ -399,13 +416,14 @@ namespace MixedAtmospheres.Oni
                         // One reference per generic context that resolves it: the
                         // one whose value is the contract's, else the first.
                         var candidates = index.Member(entry.Key);
-                        member = candidates.FirstOrDefault(m => Same(entry.Value, GameContractScope.MemberValue(m))) ?? candidates[0];
+                        var wanted = build == 0 ? entry.Value : entry.BuildMasked;
+                        member = candidates.FirstOrDefault(m => Same(wanted, GameContractScope.MemberValue(m, false, build))) ?? candidates[0];
                     }
-                    found.Key = GameContractCanon.Member(member); found.Value = GameContractScope.MemberValue(member);
+                    found.Key = GameContractCanon.Member(member); found.Value = GameContractScope.MemberValue(member, false, build);
                     found.Home = member.DeclaringType == null ? null : GameContractScope.Home(member.DeclaringType);
                     if (member is MethodBase called)
                     {
-                        found.Methods = new[] { called }; found.Unpatched = () => GameContractScope.MemberValue(member, true);
+                        found.Methods = new[] { called }; found.Unpatched = () => GameContractScope.MemberValue(member, true, build);
                         found.GameBody = called.DeclaringType != null && GameContractScope.IsGame(called.DeclaringType.Assembly);
                     }
                     break;
@@ -413,13 +431,13 @@ namespace MixedAtmospheres.Oni
                     var owner = entry.Token == 0 ? GameContractScope.FindType(entry.TypeName) :
                         index != null ? index.Type(OwnerKey(entry)) : module.ResolveType(entry.Token);
                     if (owner == null) throw new TypeLoadException("type " + entry.TypeName + " is missing");
-                    (found.Key, found.Value) = Named(owner, entry.Name);
+                    (found.Key, found.Value) = Named(owner, entry.Name, build);
                     found.Home = GameContractScope.Home(owner);
                     found.Shape = pinned => GameContractScope.NamedShape(owner, entry.Name, pinned);
                     if (entry.Name.Length != 0 && entry.Name != AllMembers)
                     {
                         found.Methods = GameContractScope.GameMembers(owner, entry.Name).OfType<MethodBase>().ToArray();
-                        found.Unpatched = () => GameContractScope.NamedValue(owner, entry.Name, true);
+                        found.Unpatched = () => GameContractScope.NamedValue(owner, entry.Name, true, build);
                     }
                     break;
                 default: throw new NotSupportedException("unknown contract entry kind " + entry.Kind);
@@ -458,12 +476,39 @@ namespace MixedAtmospheres.Oni
         // Such a difference is worded apart and, when `modPatched` is given,
         // recorded there: when every difference is of that kind the build is
         // verified (GameBuildCheck.Admit) and Player.log names the mods.
-        internal static List<string> Verify(GameContractPlatform contract, Assembly mod, out int checkedEntries, List<ModPatched>? modPatched = null, VerifyMode? mode = null)
+        // A check of a game build newer than the contract's
+        // (docs/game-update-resilience.md#tolerated-newer-builds): an entry
+        // that differs is forgiven only when the contract recorded a
+        // build-number reading for it and the running game's form, with every
+        // occurrence of the running build number read the same way, equals
+        // that reading. `Forgiven` lists those entries.
+        internal sealed class BuildTolerance
+        {
+            internal int RunningBuild;
+            internal readonly List<string> Forgiven = new List<string>();
+            internal BuildTolerance(int runningBuild) { RunningBuild = runningBuild; }
+        }
+
+        // `tolerance`, for a game build newer than the contract's: forgive the
+        // entries that differ only by the build number. Never together with
+        // Moono's tolerances (VerifyMode.Pinned): those rest on the game's
+        // files being the contract build's, which a newer build's are not.
+        internal static List<string> Verify(GameContractPlatform contract, Assembly mod, out int checkedEntries, List<ModPatched>? modPatched = null, VerifyMode? mode = null,
+            BuildTolerance? tolerance = null)
         {
             var differences = new List<string>();
             var module = mod.ManifestModule;
             checkedEntries = 0;
-            var expectedTargets = new Dictionary<string, string>(StringComparer.Ordinal);
+            if (tolerance != null && mode?.Pinned != null) throw new ArgumentException("Moono's tolerances need the contract build's files; a newer build has others.");
+            var newer = tolerance != null && tolerance.RunningBuild > contract.GameBuild ? tolerance : null;
+            var running = newer?.RunningBuild ?? 0;
+            bool Forgiven(string buildMasked, Func<string> masked)
+            {
+                if (newer == null || buildMasked.Length == 0) return false;
+                try { return Same(buildMasked, masked()); }
+                catch (Exception) { return false; }
+            }
+            var expectedTargets = new Dictionary<string, GameContractEntry>(StringComparer.Ordinal);
             Timings.Clear();
             var clock = System.Diagnostics.Stopwatch.StartNew();
             KeyIndex? index = null;
@@ -482,7 +527,7 @@ namespace MixedAtmospheres.Oni
             }
             foreach (var entry in contract.Entries)
             {
-                if (entry.Kind == GameContractScope.Kind_Patched) { expectedTargets[entry.Key] = entry.Value; continue; }
+                if (entry.Kind == GameContractScope.Kind_Patched) { expectedTargets[entry.Key] = entry; continue; }
                 ++checkedEntries;
                 var started = clock.Elapsed.TotalMilliseconds;
                 Found found;
@@ -491,13 +536,18 @@ namespace MixedAtmospheres.Oni
                 finally { Timings[entry.Kind] = (Timings.TryGetValue(entry.Kind, out var spent) ? spent : 0) + clock.Elapsed.TotalMilliseconds - started; }
                 Observe(found.Methods);
                 if (found.Key != entry.Key) differences.Add("changed " + entry.Key + " -> " + found.Key);
-                else if (!Same(entry.Value, found.Value) && !(mode?.Pinned != null && Tolerated(entry, found, mode)))
-                    Changed(entry.Key, "", entry.Value, found.Methods, found.Unpatched);
+                else if (Same(entry.Value, found.Value) || mode?.Pinned != null && Tolerated(entry, found, mode)) continue;
+                else if (Forgiven(entry.BuildMasked, () => Find(entry, module, index, running).Value)) newer!.Forgiven.Add(entry.Key);
+                else Changed(entry.Key, "", entry.Value, found.Methods, found.Unpatched, entry.BuildMasked,
+                    () => Find(entry, module, index, running).Unpatched?.Invoke() ?? "");
             }
-            void Changed(string key, string what, string expected, MethodBase[] methods, Func<string>? unpatched)
+            // Another mod's patch mark on verified code: the form without the
+            // mark equals the contract's, or on a newer build its build-number reading.
+            void Changed(string key, string what, string expected, MethodBase[] methods, Func<string>? unpatched, string buildMasked = "", Func<string>? maskedUnpatched = null)
             {
                 var patched = methods.Where(GameContractScope.PatchedByAMod).ToArray();
-                if (patched.Length == 0 || unpatched == null || !Same(expected, unpatched())) { differences.Add("changed " + what + key); return; }
+                if (patched.Length == 0 || unpatched == null || !Same(expected, unpatched()) && !(maskedUnpatched != null && Forgiven(buildMasked, maskedUnpatched)))
+                { differences.Add("changed " + what + key); return; }
                 var difference = "patched by another mod: " + what + key;
                 differences.Add(difference);
                 modPatched?.Add(new ModPatched { Difference = difference, Methods = patched });
@@ -516,9 +566,11 @@ namespace MixedAtmospheres.Oni
                 foundTargets.Add(key);
                 Observe(new[] { target });
                 if (!expectedTargets.TryGetValue(key, out var expected)) differences.Add("new patch target " + key);
-                else if (Same(expected, value)) continue;
+                else if (Same(expected.Value, value)) continue;
                 else if (mode?.Pinned != null && target.DeclaringType != null && mode.Pinned(GameContractScope.Home(target.DeclaringType))) mode.Rewritten.Add("patch target " + key);
-                else Changed(key, "patch target ", expected, new[] { target }, () => GameContractCanon.Body(target, MethodImplAttributes.NoInlining));
+                else if (Forgiven(expected.BuildMasked, () => GameContractCanon.Body(target, 0, running))) newer!.Forgiven.Add("patch target " + key);
+                else Changed(key, "patch target ", expected.Value, new[] { target }, () => GameContractCanon.Body(target, MethodImplAttributes.NoInlining),
+                    expected.BuildMasked, () => GameContractCanon.Body(target, MethodImplAttributes.NoInlining, running));
             }
             foreach (var key in expectedTargets.Keys) if (!foundTargets.Contains(key)) differences.Add("missing patch target " + key);
             Timings[GameContractScope.Kind_Patched] = clock.Elapsed.TotalMilliseconds - discovery;
@@ -562,9 +614,16 @@ namespace MixedAtmospheres.Oni
             // The key path Moono uses (docs/game-update-resilience.md#moono)
             // must agree with the token path entry by entry, and its Verify
             // must report the same differences. A disagreement is a difference.
-            var keyed = CrossCheck(file.Platforms[platform], mod);
-            var keyDifferences = Verify(file.Platforms[platform], mod, out _, null, new VerifyMode { ByKey = true });
-            var differences = Verify(file.Platforms[platform], mod, out var count, modPatched);
+            var contract = file.Platforms[platform];
+            var keyed = CrossCheck(contract, mod);
+            // A newer game is checked as the package root checks it, on both paths.
+            var newer = GameBuildCheck.RunningBuild > contract.GameBuild;
+            var keyTolerance = newer ? new BuildTolerance(GameBuildCheck.RunningBuild) : null;
+            var tolerance = newer ? new BuildTolerance(GameBuildCheck.RunningBuild) : null;
+            var keyDifferences = Verify(contract, mod, out _, null, new VerifyMode { ByKey = true }, keyTolerance);
+            var differences = Verify(contract, mod, out var count, modPatched, null, tolerance);
+            if (tolerance != null && !tolerance.Forgiven.SequenceEqual(keyTolerance!.Forgiven))
+                keyed.Add("forgiven by token " + string.Join(", ", tolerance.Forgiven) + ", by key " + string.Join(", ", keyTolerance.Forgiven));
             var timings = Timings.Select(t => t.Key + " " + ((long)t.Value).ToString() + " ms").ToList();
             var tokenSet = new HashSet<string>(differences, StringComparer.Ordinal);
             keyed.AddRange(keyDifferences.Where(d => !tokenSet.Contains(d)).Select(d => "only by key: " + d));
@@ -572,10 +631,12 @@ namespace MixedAtmospheres.Oni
             keyed.AddRange(differences.Where(d => !keySet.Contains(d)).Select(d => "only by token: " + d));
             var keyLine = keyed.Count == 0 ? "key path agrees" : keyed.Count + " key path disagreements";
             differences.AddRange(keyed.Select(d => "key path: " + d));
-            var refusal = GameBuildCheck.Admit(GameBuildCheck.RunningBuild, differences, modPatched, out var otherModPatches);
+            var refusal = GameBuildCheck.Admit(GameBuildCheck.RunningBuild, differences, modPatched, out var otherModPatches, newer ? contract.GameBuild : 0);
             return $"{platform} (game Mono): build {GameBuildCheck.RunningBuild}, {count} dependencies checked in {started.ElapsedMilliseconds} ms (" +
                 string.Join(", ", timings) + $"; {keyLine}), {differences.Count} differences" +
                 string.Concat(differences.Take(40).Select(d => "\n  " + d)) +
+                (tolerance == null ? "" : $"\nnewer than the contract's build {contract.GameBuild}: {tolerance.Forgiven.Count} entries differ only by the build number" +
+                    string.Concat(tolerance.Forgiven.Select(f => "\n  forgiven " + f))) +
                 // What Mod.OnLoad would decide (--other-mod controls): the
                 // refusal's notice, or the verified build's other-mod lines.
                 (refusal != null ? "\nnotice:\n" + refusal.Notice : differences.Count == 0 ? "" :

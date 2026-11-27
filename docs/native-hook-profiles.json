@@ -280,7 +280,14 @@
           "fingerprint_sha256": "25fc36d6c1401121e689b8d0973d301b85987cb10740b0e76929f41e4e541237",
           "signature": "pointer(const-game*)"
         }
-      ]
+      ],
+      "revision_site": {
+        "symbol": "?GetRevision@AppVersion@@YA?BIXZ",
+        "rva": 325937,
+        "bytes": 4,
+        "value": 744825
+      },
+      "revision_masked_identity": "0c9fa4e31b02e6fe2f61044ff75013a5dd81445a4a395f4e8fd36e20a7f24a32"
     },
     {
       "platform": "windows-x64",
@@ -559,7 +566,14 @@
           "signature": "pointer(const-game*)"
         }
       ],
-      "oni_build": 763796
+      "oni_build": 763796,
+      "revision_site": {
+        "symbol": "?GetRevision@AppVersion@@YA?BIXZ",
+        "rva": 325937,
+        "bytes": 4,
+        "value": 763796
+      },
+      "revision_masked_identity": "1f266c5b6c9fb87c6e3c96e42cf4aed28f859faebed17498c2d3655e6ea0437f"
     },
     {
       "platform": "windows-x64",
@@ -838,7 +852,14 @@
           "signature": "pointer(const-game*)"
         }
       ],
-      "oni_build": 764025
+      "oni_build": 764025,
+      "revision_site": {
+        "symbol": "?GetRevision@AppVersion@@YA?BIXZ",
+        "rva": 325937,
+        "bytes": 4,
+        "value": 764025
+      },
+      "revision_masked_identity": "1f266c5b6c9fb87c6e3c96e42cf4aed28f859faebed17498c2d3655e6ea0437f"
     },
     {
       "platform": "windows-x64",
@@ -1117,7 +1138,14 @@
           "signature": "pointer(const-game*)"
         }
       ],
-      "oni_build": 764961
+      "oni_build": 764961,
+      "revision_site": {
+        "symbol": "?GetRevision@AppVersion@@YA?BIXZ",
+        "rva": 325937,
+        "bytes": 4,
+        "value": 764961
+      },
+      "revision_masked_identity": "1f266c5b6c9fb87c6e3c96e42cf4aed28f859faebed17498c2d3655e6ea0437f"
     },
     {
       "platform": "linux-x64",

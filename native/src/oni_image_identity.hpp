@@ -108,9 +108,59 @@ inline std::string normalized_image_identity(std::vector<std::uint8_t> bytes) {
     return hash_memory(bytes.data(), bytes.size());
 }
 
-inline std::string normalized_file_identity(const std::filesystem::path& path) {
+// The revision-masked identity of a PE image (docs/game-update-resilience.md#tolerated-newer-builds):
+// the normalised identity with, in addition, the `size` bytes of the
+// revision constant at `rva` zeroed (the immediate that
+// AppVersion::GetRevision returns, a site taken from a verified profile)
+// and the Authenticode signature left out: its data-directory entry is
+// zeroed and the certificate data, which the loader never maps and which
+// must be the last bytes of the file, is cut off. Every other code, data
+// and header byte stays covered. Mirrors tools/oni_hook_profiles.py
+// revision_masked_identity.
+inline std::string revision_masked_image_identity(std::vector<std::uint8_t> bytes, std::uint64_t rva, std::uint32_t size) {
+    const image_identity_detail::Image image{bytes};
+    image.require(bytes.size() >= 2 && bytes[0] == 'M' && bytes[1] == 'Z', "a revision-masked identity needs a PE image");
+    image.require(size > 0 && size <= 8, "revision constant size");
+    const auto pe = image.u32(60);
+    image.require(image.u32(pe) == 0x00004550U, "missing PE signature");
+    const auto count = image.u16(pe + 6), optional_size = image.u16(pe + 20);
+    const std::uint64_t optional = pe + 24;
+    image.require(image.u16(optional) == 0x20BU, "a revision-masked identity needs a PE32+ image");
+    const std::uint64_t directories = optional + 112U;
+    const auto directory_count = image.u32(optional + 108U);
+    std::uint64_t site = 0, sections_end = 0;
+    bool found = false;
+    for (std::uint32_t index = 0; index < count; ++index) {
+        const auto at = optional + optional_size + 40ULL * index;
+        const std::uint64_t virtual_size = image.u32(at + 8), address = image.u32(at + 12), raw_size = image.u32(at + 16), raw = image.u32(at + 20);
+        const auto flags = image.u32(at + 36);
+        if (raw_size) sections_end = raw + raw_size > sections_end ? raw + raw_size : sections_end;
+        const auto mapped = virtual_size < raw_size ? virtual_size : raw_size;
+        if (address <= rva && rva + size <= address + mapped) {
+            image.require((flags & 0x20000000U) != 0, "the revision constant is not in executable code");
+            site = raw + rva - address; found = true;
+        }
+    }
+    image.require(found, "the revision constant is outside the file-backed sections");
+    std::uint64_t certificate = 0, certificate_size = 0;
+    if (4 < directory_count) { certificate = image.u32(directories + 32); certificate_size = image.u32(directories + 36); }
+    image_identity_detail::normalise_pe(image);
+    image.zero(site, size);
+    if (4 < directory_count) image.zero(directories + 32, 8);
+    if (certificate_size) {
+        image.require(certificate >= sections_end && certificate + certificate_size == bytes.size(), "the certificate table is not the end of the file");
+        bytes.resize(static_cast<std::size_t>(certificate));
+    }
+    return hash_memory(bytes.data(), bytes.size());
+}
+
+inline std::vector<std::uint8_t> read_native_image(const std::filesystem::path& path) {
     std::ifstream input(path, std::ios::binary);
     if (!input) throw std::runtime_error("Cannot read native image " + path.string());
-    return normalized_image_identity(std::vector<std::uint8_t>(std::istreambuf_iterator<char>(input), {}));
+    return std::vector<std::uint8_t>(std::istreambuf_iterator<char>(input), {});
+}
+
+inline std::string normalized_file_identity(const std::filesystem::path& path) {
+    return normalized_image_identity(read_native_image(path));
 }
 } // namespace ma::oni

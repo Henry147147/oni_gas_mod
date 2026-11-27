@@ -57,6 +57,9 @@ Uploads so far:
 | 2026-11-25 03:09 | 1.13.6 | `d63861d` | `status` on 2026-11-25: every file as the manifest pins it; uploaded by the user while its release chain was running |
 | 2026-11-25 15:21 | 1.13.8 | `6dd5a59` | uploaded with `tools/workshop.py` at the user's request of that day (the tool's first upload); it printed `UPLOADED AND VERIFIED`, and `status --package` agrees file for file |
 | 2026-11-25 20:02 | 1.13.9 | `6458df3` | uploaded with `tools/workshop.py` at the user's request of that day; `UPLOADED AND VERIFIED`, and `status --package` agrees file for file |
+| 2026-11-26 21:47 | 1.13.10 | `32f6aca` | uploaded with `tools/workshop.py` by another session; the record of the 1.13.11 upload names it as the file it replaced |
+| 2026-11-27 00:11 | 1.13.11 | `e09397d` | uploaded with `tools/workshop.py` at the user's request of 2026-11-26; the published file agrees with the release folder file for file |
+| 2026-11-27 01:44 | 1.13.12 | `2fa5374` | uploaded with `tools/workshop.py` at the user's go-ahead of that day, from `origin/release/1.13`; the published file agrees with the release folder file for file |
 
 The first four were uploaded by the user with Klei's uploader; this project's
 record does not say how 1.12.2.3 and 1.13.3 were uploaded (1.13.3 went up
@@ -78,7 +81,8 @@ python3 tools/workshop.py fetch-mod 3609531831   # Rephysicalized -> local/other
 ## Uploading a version
 
 1. **Stage the release folder**: an unmarked `tools/package_release.py` package
-   ([distribution](distribution.md#release-folder)) of a pushed revision, on
+   ([distribution](distribution.md#release-folder)) of a pushed revision (on
+   `origin/main` or a release line `origin/release/*`), on
    the share under `releases/<version>/MixedAtmospheres`. A release test
    (`--release-test`) is refused.
 2. **Write the change note** players will see on the item's Change Notes tab,
@@ -130,7 +134,7 @@ published files) is written to `artifacts/workshop/<time>-<version>` unless
   file that differs from the manifest, an extra or missing file, a development
   or validation file, a `mod_info.yaml` that does not state the version for
   each supported game build.
-- A revision that is not on `origin/main`.
+- A revision that is on neither `origin/main` nor a release line `origin/release/*` (a hotfix of the released version is cut from its release branch while main carries later work).
 - A version that is not newer than the published one, unless `--replace-newer`
   is given. Going back to the previous release after a bad upload is that
   case: upload its kept folder with `--replace-newer` and a change note that

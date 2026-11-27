@@ -100,6 +100,22 @@ class ExtraModTests(unittest.TestCase):
             self.assertEqual(list(dev.iterdir()), [])
 
 
+class ValidationFolderTests(unittest.TestCase):
+    """Where test requests go, and the newer-game control (docs/game-update-resilience.md#tolerated-newer-builds)."""
+
+    def test_builds_and_the_newer_game_control(self):
+        mod, manifest = Path("/mods/Dev/MA"), {"supported_builds": [744825, 763796, 764025, 764961]}
+        self.assertEqual(runner.validation_folder(mod, manifest, 764961), mod)
+        self.assertEqual(runner.validation_folder(mod, manifest, 763796), mod / "archived_versions/763796")
+        with self.assertRaisesRegex(ValueError, "--newer-game-control"):
+            runner.validation_folder(mod, {"supported_builds": [763796]}, 764025)
+        self.assertEqual(runner.validation_folder(mod, {"supported_builds": [763796]}, 764025, newer_game=True), mod)
+        with self.assertRaises(ValueError):  # an older or in-between build is never let through
+            runner.validation_folder(mod, {"supported_builds": [764025]}, 763796, newer_game=True)
+        with self.assertRaises(ValueError):
+            runner.validation_folder(mod, {"supported_builds": [744825, 764025]}, 763796, newer_game=True)
+
+
 class ScenarioContractTests(unittest.TestCase):
     def test_runner_and_game_admit_the_same_scenarios(self):
         configuration = (Path(__file__).parents[2] / "managed" / "MixedAtmospheres.Oni" /

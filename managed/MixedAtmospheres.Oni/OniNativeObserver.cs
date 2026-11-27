@@ -108,6 +108,14 @@ namespace MixedAtmospheres.Oni
             }
             finally { Marshal.FreeCoTaskMem(path); }
         }
+        // How the last probe or attach chose its SimDLL profile: "verified
+        // (build N, identity ...)" or "carried from the verified image of
+        // build N ..." (docs/game-update-resilience.md#tolerated-newer-builds).
+        internal static string SelectedProfile()
+        {
+            try { return Marshal.PtrToStringAnsi(SelectedProfileText()) ?? ""; }
+            catch (EntryPointNotFoundException) { return ""; }
+        }
         private delegate void ConfigAction(ref Config config);
         private void WithConfig(ConfigAction action)
         {
@@ -173,6 +181,8 @@ namespace MixedAtmospheres.Oni
         private static extern int CopyTrace([In, Out] TraceEvent[] output, uint capacity, ref uint count);
         [DllImport(Library, EntryPoint = "ma_oni_detach_observer", CallingConvention = CallingConvention.Cdecl)]
         private static extern int Detach();
+        [DllImport(Library, EntryPoint = "ma_oni_selected_profile", CallingConvention = CallingConvention.Cdecl)]
+        private static extern IntPtr SelectedProfileText();
         [DllImport(Library, EntryPoint = "ma_oni_last_error", CallingConvention = CallingConvention.Cdecl)]
         private static extern IntPtr LastError();
     }

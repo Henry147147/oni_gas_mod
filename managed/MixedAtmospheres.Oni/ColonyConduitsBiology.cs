@@ -200,7 +200,7 @@ namespace MixedAtmospheres.Oni
         internal static void StartControl()
         {
             if(!ColonyConduits.Active)throw new InvalidOperationException("All-ID biology needs owned pipe inventories.");
-            if(!IsSupportedSchedulingSignature(SchedulingSignature()))throw new NotSupportedException("All-ID pipe biology requires the validated synchronous native conduit scheduling boundary.");
+            if(!IsSupportedSchedulingSignature(SchedulingSignature())&&!ToleratedSchedulingBoundary())throw new NotSupportedException("All-ID pipe biology requires the validated synchronous native conduit scheduling boundary.");
             Enabled=true;
         }
         internal const string ExpectedSchedulingSignature="1CD6F26E9E76A9FB3F5CD1EF5BA0A5AA3D007EEDDF615AE593EC1A321BCD1B49";
@@ -222,6 +222,29 @@ namespace MixedAtmospheres.Oni
             signature==ExpectedSchedulingSignature||signature==ExpectedWindowsSchedulingSignature||
             signature==ExpectedSchedulingSignature763796||signature==ExpectedWindowsSchedulingSignature763796||
             signature==ExpectedSchedulingSignature764961||signature==ExpectedWindowsSchedulingSignature764961;
+        // A game newer than the contract's build, accepted because nothing the
+        // mod uses changed apart from the build number (GameBuildCheck.Tolerated,
+        // docs/game-update-resilience.md#tolerated-newer-builds), has moved
+        // metadata tokens, so its raw signature above is new. The same five
+        // bodies are then compared in the game contract's token-independent
+        // canonical form, without the inlining mark that patching sets. The
+        // value is that of 763796, 764025 and 764961 on both platforms
+        // (tools/GameContract controls checks it against each installation).
+        internal const string ExpectedCanonicalSchedulingSignature="3ac74fdb7b497ec950a6b968d66d722a7130d5238131eef61e9bf33c6cba9360";
+        internal static bool ToleratedSchedulingBoundary()=>GameBuildCheck.Tolerated!=null&&CanonicalSchedulingSignature()==ExpectedCanonicalSchedulingSignature;
+        private static IEnumerable<(Type? Owner,string Name)> SchedulingBodies()=>new (Type? Owner,string Name)[]{(typeof(Game),"StepTheSim"),(typeof(ConduitFlow),"Sim200ms"),
+            (AccessTools.TypeByName("GlobalJobManager"),"Run"),(AccessTools.TypeByName("JobManager"),"Run"),(typeof(ConduitDiseaseManager),"Sim200ms")};
+        internal static string CanonicalSchedulingSignature()
+        {
+            var text=new System.Text.StringBuilder();
+            foreach(var (owner,name) in SchedulingBodies())
+            {
+                var method=owner==null?null:AccessTools.Method(owner,name);
+                if(method?.GetMethodBody()==null)throw new NotSupportedException("Native pipe scheduling body is unavailable: "+name);
+                text.Append(GameContractCanon.Body(method,System.Reflection.MethodImplAttributes.NoInlining)).Append('\n');
+            }
+            return GameContractCanon.Hash(text.ToString());
+        }
         internal static string SchedulingSignature()
         {
             using var bytes=new MemoryStream();using(var writer=new BinaryWriter(bytes,System.Text.Encoding.UTF8,true))

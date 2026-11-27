@@ -77,11 +77,26 @@ namespace MixedAtmospheres.Oni
             _ => "member " + member.Name,
         };
 
+        // The build-number reading of a canonical form (docs/game-update-resilience.md#tolerated-newer-builds):
+        // with `build` given, every occurrence of that game build number is
+        // written as this mark instead: an int32 operand of ldc.i4/ldc.i4.s,
+        // an integer constant equal to it, and the number as a whole word
+        // (no digit before or after) inside a string literal or constant.
+        // A raw quote never appears inside an escaped string literal of
+        // the form, so the mark cannot be confused with game text there.
+        internal const string BuildMark = "\"+BUILD+\"";
+
+        // The pure substitution, with unit controls (tools/DistributionTests).
+        internal static string MaskBuild(string text, int build, Func<string, string>? piece = null) => ModAdmission.MaskBuild(text, build, BuildMark, piece);
+
+        private static string Escaped(string text) => text.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n");
+
         // Normalised method body: tokens become what they resolve to, strings
         // their text; branch offsets, constants, locals and clauses are kept.
         // `ignored`: implementation flags left out of the form (see
-        // GameContractScope.PatchedByAMod).
-        internal static string Body(MethodBase method, MethodImplAttributes ignored = 0)
+        // GameContractScope.PatchedByAMod). `build`: the build-number
+        // reading (BuildMark); 0 for the exact form.
+        internal static string Body(MethodBase method, MethodImplAttributes ignored = 0, int build = 0)
         {
             var text = new StringBuilder(Method(method)).Append('\n');
             text.Append("attributes ").Append((int)(method.Attributes & ~MethodAttributes.ReservedMask)).Append(' ').Append((int)(method.GetMethodImplementationFlags() & ~ignored)).Append('\n');
@@ -108,7 +123,10 @@ namespace MixedAtmospheres.Oni
                 text.Append(instruction.Code.Name);
                 switch (instruction.Code.OperandType)
                 {
-                    case OperandType.InlineString: text.Append(" \"").Append(method.Module.ResolveString(instruction.Token).Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\n", "\\n")).Append('"'); break;
+                    case OperandType.InlineString: text.Append(" \"").Append(MaskBuild(method.Module.ResolveString(instruction.Token), build, Escaped)).Append('"'); break;
+                    case OperandType.InlineI when build > 0 && instruction.Code == OpCodes.Ldc_I4 && BitConverter.ToInt32(instruction.Operand, 0) == build:
+                    case OperandType.ShortInlineI when build > 0 && instruction.Code == OpCodes.Ldc_I4_S && (sbyte)instruction.Operand[0] == build:
+                        text.Append(' ').Append(BuildMark); break;
                     case OperandType.InlineMethod: case OperandType.InlineField: case OperandType.InlineType: case OperandType.InlineTok:
                         text.Append(' ').Append(Member(method.Module.ResolveMember(instruction.Token, typeArguments, methodArguments)!)); break;
                     case OperandType.InlineSig: text.Append(" sig ").Append(Hex(method.Module.ResolveSignature(instruction.Token))); break;
@@ -187,12 +205,12 @@ namespace MixedAtmospheres.Oni
         }
 
         // Enum members, or a type's const fields, sorted by name.
-        internal static string Literals(Type type)
+        internal static string Literals(Type type, int build = 0)
         {
             var literals = type.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.DeclaredOnly)
                 .Where(f => f.IsLiteral && !(type.FullName == "KleiVersion" && f.Name == "ChangeList"))
                 .OrderBy(f => f.Name, StringComparer.Ordinal)
-                .Select(f => f.Name + "=" + Constant(f.GetRawConstantValue()));
+                .Select(f => f.Name + "=" + Constant(f.GetRawConstantValue(), build));
             return (type.IsEnum ? "enum " + Type(Enum.GetUnderlyingType(type)) + " " : "consts ") + string.Join(";", literals);
         }
 
@@ -201,13 +219,15 @@ namespace MixedAtmospheres.Oni
 
         // Runtime-independent text for a constant: Mono and CoreCLR format
         // floating-point values differently, so those are their bits.
-        internal static string Constant(object? value) => value switch
+        // `build`: the build-number reading (BuildMark); 0 for the exact text.
+        internal static string Constant(object? value, int build = 0) => value switch
         {
             null => "null",
             float single => "f" + BitConverter.SingleToInt32Bits(single).ToString("x8"),
             double number => "d" + BitConverter.DoubleToInt64Bits(number).ToString("x16"),
             char character => "c" + ((int)character).ToString(System.Globalization.CultureInfo.InvariantCulture),
-            string text => "\"" + text + "\"",
+            string text => "\"" + MaskBuild(text, build) + "\"",
+            sbyte or byte or short or ushort or int or uint or long or ulong when build > 0 && Convert.ToDecimal(value, System.Globalization.CultureInfo.InvariantCulture) == build => BuildMark,
             _ => Convert.ToString(value, System.Globalization.CultureInfo.InvariantCulture) ?? "",
         };
 
@@ -253,12 +273,13 @@ namespace MixedAtmospheres.Oni
             return !IsFramework(assembly) && !IsOwn(assembly);
         }
 
-        internal static string TypeValue(Type type)
+        // `build`: the build-number reading (GameContractCanon.BuildMark); 0 for the exact form.
+        internal static string TypeValue(Type type, int build = 0)
         {
             var value = new StringBuilder("present");
-            if (type.IsEnum) value.Append(' ').Append(GameContractCanon.Literals(type));
+            if (type.IsEnum) value.Append(' ').Append(GameContractCanon.Literals(type, build));
             else if (type.IsValueType && !type.IsPrimitive) value.Append(' ').Append(GameContractCanon.Layout(type));
-            else if (IsGame(type.Assembly)) value.Append(' ').Append(GameContractCanon.Literals(type));
+            else if (IsGame(type.Assembly)) value.Append(' ').Append(GameContractCanon.Literals(type, build));
             return value.ToString();
         }
 
@@ -274,9 +295,9 @@ namespace MixedAtmospheres.Oni
         }
 
         // `withoutPatchMark`: the value a patched method had before Harmony marked it.
-        internal static string MemberValue(MemberInfo member, bool withoutPatchMark = false) => member is MethodBase method && method.DeclaringType != null && IsGame(method.DeclaringType.Assembly)
-            ? GameContractCanon.Body(method, withoutPatchMark && PatchedByAMod(method) ? MethodImplAttributes.NoInlining : 0) : member is FieldInfo field && field.IsLiteral
-            ? "const " + GameContractCanon.Constant(field.GetRawConstantValue()) : "present";
+        internal static string MemberValue(MemberInfo member, bool withoutPatchMark = false, int build = 0) => member is MethodBase method && method.DeclaringType != null && IsGame(method.DeclaringType.Assembly)
+            ? GameContractCanon.Body(method, withoutPatchMark && PatchedByAMod(method) ? MethodImplAttributes.NoInlining : 0, build) : member is FieldInfo field && field.IsLiteral
+            ? "const " + GameContractCanon.Constant(field.GetRawConstantValue(), build) : "present";
 
         // Every member of a type that reflection by this name can reach.
         // Members a type declares or inherits from game and engine types.
@@ -310,11 +331,11 @@ namespace MixedAtmospheres.Oni
             return string.Join("\n", members.Select(m => GameContractCanon.Member(m) + " " + (m is MethodBase ? "body" : MemberValue(m))).OrderBy(t => t, StringComparer.Ordinal));
         }
 
-        internal static string NamedValue(Type type, string name, bool withoutPatchMark = false)
+        internal static string NamedValue(Type type, string name, bool withoutPatchMark = false, int build = 0)
         {
             var members = GameMembers(type, name).ToArray();
             if (members.Length == 0) return "absent";
-            return string.Join("\n", members.Select(m => GameContractCanon.Member(m) + " " + MemberValue(m, withoutPatchMark)).OrderBy(s => s, StringComparer.Ordinal));
+            return string.Join("\n", members.Select(m => GameContractCanon.Member(m) + " " + MemberValue(m, withoutPatchMark, build)).OrderBy(s => s, StringComparer.Ordinal));
         }
 
         // The originals Harmony's PatchAll would patch, found without patching
@@ -435,6 +456,11 @@ namespace MixedAtmospheres.Oni
         // Named entries on game types: the value as Moono may leave it
         // (GameContractScope.NamedShape); empty in older contracts.
         [JsonProperty] public string Shape = "";
+        // The value's build-number reading (GameContractCanon.BuildMark) at
+        // the contract's own build, written only when that build number
+        // occurs in the entry's form. Only such entries can be forgiven on a
+        // newer game build (docs/game-update-resilience.md#tolerated-newer-builds).
+        [JsonProperty] public string BuildMasked = "";
     }
 
     [JsonObject(MemberSerialization.OptIn)]
@@ -460,6 +486,7 @@ namespace MixedAtmospheres.Oni
                     .Append(", \"TypeName\": ").Append(Quote(e.TypeName)).Append(", \"Name\": ").Append(Quote(e.Name))
                     .Append(", \"Key\": ").Append(Quote(e.Key)).Append(", \"Value\": ").Append(Quote(e.Value));
                 if (e.Shape.Length != 0) text.Append(", \"Shape\": ").Append(Quote(e.Shape));
+                if (e.BuildMasked.Length != 0) text.Append(", \"BuildMasked\": ").Append(Quote(e.BuildMasked));
                 text.Append(" }");
             }
             text.Append("\n  ],\n  \"Unverified\": [").Append(string.Join(", ", Unverified.Select(Quote))).Append("]\n}");

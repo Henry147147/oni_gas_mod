@@ -121,8 +121,22 @@ namespace MixedAtmospheres.Oni
             var game = Directory.GetParent(managed)?.Parent?.FullName ?? throw new InvalidOperationException("Cannot locate the loaded game's root.");
             NativeLibraryBootstrap.LoadObserver(modDirectory);
             var refusal = OniNativeObserver.ProbeGame(game);
-            return refusal == null ? null : refusal == OniNativeObserver.OtherModBuild ? ModAdmission.Installation(refusal) :
-                ModAdmission.GameFiles(build, new[] { "the game's native simulator (SimDLL): " + refusal });
+            if (refusal == null)
+            {
+                // "verified" or, for an image that differs from a verified one
+                // only in its revision constant, "carried" (docs/game-update-resilience.md#tolerated-newer-builds).
+                var selection = OniNativeObserver.SelectedProfile();
+                if (selection.Length != 0) UnityEngine.Debug.Log("[Mixed Atmospheres] Game SimDLL " + selection + ".");
+                return null;
+            }
+            if (refusal == OniNativeObserver.OtherModBuild) return ModAdmission.Installation(refusal);
+            var part = "the game's native simulator (SimDLL): " + refusal;
+            // On a newer game accepted by its managed code, a changed SimDLL
+            // means a mod update is needed, as any other changed part.
+            var tolerated = GameBuildCheck.Tolerated;
+            return tolerated != null && GameBuildCheck.Contract != null
+                ? ModAdmission.NewerBuildChanged(GameBuildCheck.ModVersion, build, GameBuildCheck.Contract.GameBuild, new[] { part })
+                : ModAdmission.GameFiles(build, new[] { part });
         }
 
         // One copy per process. ONI loads every enabled copy: a Dev copy left

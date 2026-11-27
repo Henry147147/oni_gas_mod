@@ -26,6 +26,21 @@ Saves made with 1.13.9 and with 1.14.0 development builds load.
 Measured on Linux, game build 764025, Moono release 2026.11.26.02 (commit
 `36d6e4eb`), unless noted.
 
+## Newer game builds (from 1.13.12)
+
+The release line's 1.13.11 (game build 764961) and 1.13.12 are merged in.
+1.13.12 is the user's decision of 2026-11-26: a game build newer than the
+newest one the package supports is accepted when nothing the mod uses
+changed apart from the build number
+([tolerated newer builds](game-update-resilience.md#tolerated-newer-builds)).
+In 1.15.0 that rule and main's acceptance of other mods' patch marks combine
+as follows. On Unity's player, a newer build whose only remaining differences are
+other mods' patch marks is accepted, and Player.log has both entries. A real
+change refuses with the update notice, which names only that change, also
+beside patch marks. On a supported build, patch marks are accepted as in
+1.14.0. On Moono a newer build is refused by its number with the update
+notice ([why](game-update-resilience.md#moono-and-newer-builds)).
+
 ## Rephysicalized (from 1.14.0)
 
 - Other mods' Harmony patches on game methods the mod uses no longer turn it

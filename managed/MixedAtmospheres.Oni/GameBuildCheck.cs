@@ -22,6 +22,10 @@ namespace MixedAtmospheres.Oni
         // Moono: the game's files matched the contract's hashes, so code that
         // differs from the contract's form is Moono's rewrite at load.
         internal static bool GameFilesVerified { get; private set; }
+        // Set when the running game is newer than the contract's build and
+        // was accepted because everything the mod uses is unchanged apart
+        // from the build number (docs/game-update-resilience.md#tolerated-newer-builds).
+        internal static GameContractCheck.BuildTolerance? Tolerated { get; private set; }
         internal static int CheckedEntries { get; private set; }
         internal static double Milliseconds { get; private set; }
 
@@ -52,7 +56,7 @@ namespace MixedAtmospheres.Oni
         // otherwise why the mod stays off, by cause (ModAdmission.GameRefusal).
         internal static ModAdmission.GameRefusal? VerifyManaged(string modDirectory)
         {
-            Contract = null; OtherModPatches = Array.Empty<string>(); GameFilesVerified = false;
+            Contract = null; OtherModPatches = Array.Empty<string>(); GameFilesVerified = false; Tolerated = null;
             var file = Path.Combine(modDirectory, GameContractFile.FileName);
             if (!File.Exists(file))
             {
@@ -71,9 +75,16 @@ namespace MixedAtmospheres.Oni
                 return ModAdmission.Installation("this package has no game contract for " + Platform);
             if (platform.GameBuild != CompiledBuild)
                 return ModAdmission.Installation($"the packaged contract is for build {platform.GameBuild}, but the adapter targets {CompiledBuild}");
-            if (platform.GameBuild != RunningBuild)
+            // A newer game is checked by the package root with the build-number
+            // reading (docs/game-update-resilience.md#tolerated-newer-builds), on
+            // Unity's player only. Moono's tolerances rest on the game's files
+            // being the contract build's, which a newer build's cannot be, so on
+            // Moono a newer build is refused by its number with the update notice.
+            var newer = ModAdmission.ChecksNewerBuild(RunningBuild, platform.GameBuild, ModAdmission.AtPackageRoot(modDirectory)) && !MoonoHost.IsMoono;
+            if (platform.GameBuild != RunningBuild && !newer)
                 return ModAdmission.UnsupportedBuild(ModVersion, RunningBuild, platform.GameBuild);
             var modPatched = new List<GameContractCheck.ModPatched>();
+            var tolerance = newer ? new GameContractCheck.BuildTolerance(RunningBuild) : null;
             GameContractCheck.VerifyMode? mode = null;
             if (MoonoHost.IsMoono)
             {
@@ -85,11 +96,22 @@ namespace MixedAtmospheres.Oni
                 GameFilesVerified = true;
                 mode = new GameContractCheck.VerifyMode { ByKey = true, Pinned = pinned.Contains };
             }
-            var differences = GameContractCheck.Verify(platform, typeof(GameBuildCheck).Assembly, out var checkedEntries, modPatched, mode);
+            var differences = GameContractCheck.Verify(platform, typeof(GameBuildCheck).Assembly, out var checkedEntries, modPatched, mode, tolerance);
             CheckedEntries = checkedEntries; Milliseconds = started.Elapsed.TotalMilliseconds;
-            var refusal = Admit(RunningBuild, differences, modPatched, out var otherModPatches);
-            if (refusal != null) return mode != null ? ModAdmission.MoonoDiffers(RunningBuild, differences) : refusal;
-            Contract = platform; OtherModPatches = otherModPatches;
+            var refusal = Admit(RunningBuild, differences, modPatched, out var otherModPatches, newer ? platform.GameBuild : 0);
+            if (refusal != null)
+            {
+                if (mode != null) return ModAdmission.MoonoDiffers(RunningBuild, differences);
+                if (tolerance != null) refusal.Details = refusal.Details.Concat(tolerance.Forgiven.Select(entry => "differs only by the build number: " + entry)).ToArray();
+                return refusal;
+            }
+            Contract = platform; OtherModPatches = otherModPatches; Tolerated = tolerance;
+            if (tolerance != null)
+            {
+                UnityEngine.Debug.Log("[Mixed Atmospheres] " + ModAdmission.ToleratedBuildLog(RunningBuild, platform.GameBuild, checkedEntries, tolerance.Forgiven, Milliseconds) +
+                    ModAdmission.OtherModPatchesLog(otherModPatches));
+                return null;
+            }
             UnityEngine.Debug.Log($"[Mixed Atmospheres] Game build {RunningBuild} verified{ModAdmission.Host}: {checkedEntries} managed dependencies match the game contract " +
                 $"(written against build {platform.GameBuild}) in {Milliseconds:F0} ms." + (mode != null ? MoonoLog(mode, File.Exists(Path.Combine(modDirectory, "development.json")) ||
                 File.Exists(Path.Combine(modDirectory, "colony-validation.json"))) : "") + ModAdmission.OtherModPatchesLog(otherModPatches));
@@ -146,11 +168,18 @@ namespace MixedAtmospheres.Oni
         // 2026-11-26, docs/game-update-resilience.md#other-mods): null, with
         // the patched methods in `otherModPatches`. Anything else, alone or
         // beside patch marks, means the game's code is not this build's.
-        internal static ModAdmission.GameRefusal? Admit(int build, List<string> differences, List<GameContractCheck.ModPatched> modPatched, out string[] otherModPatches)
+        // `checkedAgainst`: for a game newer than the contract's build (the
+        // tolerated-newer-build check), the contract's build. A difference that
+        // the build number and patch marks do not account for then means a
+        // Mixed Atmospheres update is needed, and the notice names it.
+        internal static ModAdmission.GameRefusal? Admit(int build, List<string> differences, List<GameContractCheck.ModPatched> modPatched, out string[] otherModPatches,
+            int checkedAgainst = 0)
         {
             otherModPatches = Array.Empty<string>();
             // Records without a difference: patches seen on Moono where they left none.
-            if (modPatched.Count(part => part.Difference.Length != 0) != differences.Count) return ModAdmission.GameFiles(build, differences);
+            var refusal = ModAdmission.AdmitDifferences(ModVersion, build, checkedAgainst, differences,
+                new HashSet<string>(modPatched.Where(part => part.Difference.Length != 0).Select(part => part.Difference), StringComparer.Ordinal));
+            if (refusal != null) return refusal;
             // One line per patched method: the contract can hold a method as
             // a call, as a name looked up and as a patch target at once.
             var methods = new SortedDictionary<string, MethodBase>(StringComparer.Ordinal);
@@ -234,13 +263,19 @@ namespace MixedAtmospheres.Oni
             if (contract == null) return;
             refusal = reason.LoadRefusal;
             var targets = new[] { AccessTools.Method(typeof(LoadScreen), nameof(LoadScreen.DoLoad), new[] { typeof(string) }), AccessTools.Method(typeof(MainMenu), "ResumeGame") };
-            var verified = contract.Entries.Where(e => e.Kind == GameContractScope.Kind_Patched).ToDictionary(e => e.Key, e => e.Value, StringComparer.Ordinal);
-            try
-            {
+            var verified = contract.Entries.Where(e => e.Kind == GameContractScope.Kind_Patched).ToDictionary(e => e.Key, StringComparer.Ordinal);
+            // On a newer game, a target whose code differs only by the build
+            // number (its build-number reading) is the verified code too.
+            var running = GameBuildCheck.RunningBuild;
+            bool Matches(string expected, string actual) => expected == actual || expected == GameContractCanon.Compact(actual);
+            bool Verified(MethodBase target) => verified.TryGetValue(GameContractCanon.Method(target), out var entry) &&
                 // On Moono with the build's files, a body Moono rewrote at load is
                 // still the build's code (docs/game-update-resilience.md#moono).
-                if (targets.Any(t => t == null || !verified.TryGetValue(GameContractCanon.Method(t), out var body) ||
-                    !GameBuildCheck.GameFilesVerified && body != GameContractCanon.Compact(GameContractCanon.Body(t)) && body != GameContractCanon.Body(t))) return;
+                (GameBuildCheck.GameFilesVerified || Matches(entry.Value, GameContractCanon.Body(target)) ||
+                 running > contract.GameBuild && !MoonoHost.IsMoono && entry.BuildMasked.Length != 0 && Matches(entry.BuildMasked, GameContractCanon.Body(target, 0, running)));
+            try
+            {
+                if (targets.Any(t => t == null || !Verified(t))) return;
                 harmony.Patch(targets[0], prefix: new HarmonyMethod(typeof(RefusedBuildLoadGuard), nameof(LoadPrefix)));
                 harmony.Patch(targets[1], prefix: new HarmonyMethod(typeof(RefusedBuildLoadGuard), nameof(ResumePrefix)));
                 UnityEngine.Debug.Log("[Mixed Atmospheres] Only the verified save-load guard is installed.");

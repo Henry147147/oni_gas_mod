@@ -253,6 +253,81 @@ static class Program
         return native;
     }
 
+    // A game newer than the build this copy was checked against
+    // (docs/game-update-resilience.md#tolerated-newer-builds).
+    private static void NewerBuilds()
+    {
+        // Who checks a newer build at all: the package root only, and only a newer build.
+        Check(ModAdmission.ChecksNewerBuild(764961, 764025, true), "the root checks a newer build");
+        Check(!ModAdmission.ChecksNewerBuild(764025, 764025, true), "the contract's own build is checked exactly");
+        Check(!ModAdmission.ChecksNewerBuild(763900, 764025, true), "an older build stays refused by its number");
+        Check(!ModAdmission.ChecksNewerBuild(763900, 763796, false), "an in-between build, loaded from archived_versions, stays refused");
+        Check(!ModAdmission.ChecksNewerBuild(764961, 0, true) && !ModAdmission.ChecksNewerBuild(0, 764025, true), "unknown numbers stay refused");
+        var root = Path.Combine(Path.GetTempPath(), "mods", "Steam", "3842047795");
+        Check(ModAdmission.AtPackageRoot(root) && ModAdmission.AtPackageRoot(root + Path.DirectorySeparatorChar), "the package root");
+        Check(!ModAdmission.AtPackageRoot(Path.Combine(root, "archived_versions", "763796")) &&
+              !ModAdmission.AtPackageRoot(Path.Combine(root, "Archived_Versions", "744825") + Path.DirectorySeparatorChar), "an archived adapter");
+
+        // The build-number reading: whole numbers only, every occurrence, exact.
+        const string Mark = "<B>";
+        Check(ModAdmission.MaskBuild("U57-764025-S", 764025, Mark) == "U57-<B>-S", "a version string");
+        Check(ModAdmission.MaskBuild("764025 and 764025", 764025, Mark) == "<B> and <B>", "every occurrence");
+        Check(ModAdmission.MaskBuild("1764025 7640250 76402", 764025, Mark) == "1764025 7640250 76402", "digits around it are another number");
+        Check(ModAdmission.MaskBuild("x764025y", 764025, Mark) == "x<B>y", "letters around it");
+        Check(ModAdmission.MaskBuild("764025", 764961, Mark) == "764025", "another build is not masked");
+        Check(ModAdmission.MaskBuild("764025", 0, Mark) == "764025", "no build, no mask");
+        Check(ModAdmission.MaskBuild("a\"764025\"b", 764025, Mark, part => part.Replace("\"", "\\\"")) == "a\\\"<B>\\\"b", "pieces are escaped, the mark is not");
+        // The reading of the contract's build equals the running game's only when nothing else differs.
+        Check(ModAdmission.MaskBuild("ldc.i4 764025; save v7.39", 764025, Mark) == ModAdmission.MaskBuild("ldc.i4 764961; save v7.39", 764961, Mark), "only the number differs");
+        Check(ModAdmission.MaskBuild("ldc.i4 764025; save v7.39", 764025, Mark) != ModAdmission.MaskBuild("ldc.i4 764961; save v7.40", 764961, Mark), "anything else still differs");
+        Check(ModAdmission.MaskBuild("764025 764025", 764025, Mark) != ModAdmission.MaskBuild("764961 764025", 764961, Mark), "the old number left in place still differs");
+
+        // Refused: the notice says an update of the mod is needed and names what changed.
+        var changed = ModAdmission.NewerBuildChanged("1.13.10", 764961, 764025, new[]
+        {
+            "changed patch target SelectToolHoverTextCard::UpdateHoverElements(System.Collections.Generic.List`1<KSelectable>)System.Void",
+        });
+        Check(changed.Kind == "unsupported game build" && changed.Notice.Contains("Mixed Atmospheres 1.13.10 does not support this version of Oxygen Not Included (the game is build 764961; this copy of the mod is for build 764025)") &&
+            changed.Notice.Contains("The game update changed one part of the game the mod uses:\n  - SelectToolHoverTextCard.UpdateHoverElements\n") &&
+            changed.Notice.Contains("An update of Mixed Atmospheres is needed") && changed.Notice.Contains("has not changed the game") &&
+            !changed.Notice.Contains("verify") && !changed.Notice.Contains("disabling other mods"), changed.Notice);
+        Check(changed.LoadRefusal.Contains("(build 764961)") && changed.LoadRefusal.Contains("Install a Mixed Atmospheres update"), changed.LoadRefusal);
+        Check(changed.Details[0] == "the game is build 764961, newer than build 764025 this version was checked against; changed: SelectToolHoverTextCard.UpdateHoverElements" &&
+            changed.Details[1].StartsWith("changed patch target SelectToolHoverTextCard::UpdateHoverElements(", StringComparison.Ordinal), string.Join(" | ", changed.Details));
+        var several = ModAdmission.NewerBuildChanged("1.13.10", 770000, 764025, new[]
+        {
+            "changed patch target Game::Save(System.IO.BinaryWriter)System.Void", "missing named Game::Load", "changed static Sim::Step()System.Void",
+            "new patch target static Sim::Load()System.Void", "the game's native simulator (SimDLL): this SimDLL (identity 0123456789abcdef) is not a verified image",
+        });
+        Check(several.Notice.Contains("changed 5 parts of the game the mod uses:\n  - Game.Save\n  - Game.Load (missing)\n  - Sim.Step\n  - and 2 more (listed in Player.log)"), several.Notice);
+        var native = ModAdmission.NewerBuildChanged("1.13.10", 770000, 764025, new[] { "the game's native simulator (SimDLL): this SimDLL (identity 0123456789abcdef) is not a verified image" });
+        Check(native.Notice.Contains("one part of the game the mod uses:\n  - the game's native simulator (SimDLL)"), native.Notice);
+
+        // Every combination of the newer-build rule with other mods' patch marks (ModAdmission.AdmitDifferences).
+        const string PatchMark = "patched by another mod: named SaveLoader::Save", Mark2 = "patched by another mod: patch target static LoadScreen::DoLoad(System.String)System.Void";
+        const string Real = "changed patch target SelectToolHoverTextCard::UpdateHoverElements(System.Collections.Generic.List`1<KSelectable>)System.Void";
+        var marks = new HashSet<string>(new[] { PatchMark, Mark2 }, StringComparer.Ordinal);
+        // Newer build, only build-number differences (forgiven, so not differences) and patch marks: admitted.
+        Check(ModAdmission.AdmitDifferences("1.15.0", 764961, 764025, new[] { PatchMark, Mark2 }, marks) == null, "newer build, build number and patch marks: admitted");
+        Check(ModAdmission.AdmitDifferences("1.15.0", 764961, 764025, Array.Empty<string>(), marks) == null, "newer build, build number only: admitted");
+        // Newer build with a real change: refused with the update notice naming it, also beside patch marks.
+        var real = ModAdmission.AdmitDifferences("1.15.0", 764961, 764025, new[] { PatchMark, Real, Mark2 }, marks)!;
+        Check(real != null && real.Kind == "unsupported game build" && real.Notice.Contains("The game update changed one part of the game the mod uses:\n  - SelectToolHoverTextCard.UpdateHoverElements\n") &&
+            !real.Notice.Contains("SaveLoader") && real.Details.Contains(PatchMark) && real.Details.Contains(Real), real?.Notice ?? "admitted");
+        Check(ModAdmission.AdmitDifferences("1.15.0", 764961, 764025, new[] { Real }, marks)!.Notice.Contains("An update of Mixed Atmospheres is needed"), "newer build, a real change alone");
+        // Known build with patch marks: admitted as on main; with a real change beside them: the game-files refusal over every difference.
+        Check(ModAdmission.AdmitDifferences("1.15.0", 764025, 0, new[] { PatchMark, Mark2 }, marks) == null, "known build, patch marks only: admitted");
+        Check(ModAdmission.AdmitDifferences("1.15.0", 764025, 0, Array.Empty<string>(), marks) == null, "known build, nothing differs");
+        var files = ModAdmission.AdmitDifferences("1.15.0", 764025, 0, new[] { PatchMark, Real }, marks)!;
+        Check(files.Kind == "the game's code differs from the supported build" && files.Notice.Contains("2 parts of its code differ") && !files.Notice.Contains("update of Mixed Atmospheres"), files.Notice);
+
+        // Accepted: one Player.log entry naming both builds and every forgiven entry.
+        var log = ModAdmission.ToleratedBuildLog(764961, 764025, 3020, new[] { "named KleiVersion::ChangeList", "patch target Game::Save(System.IO.BinaryWriter)System.Void" }, 512.4);
+        Check(log == "Game build 764961 is newer than the build this version was checked against (764025); every part of the game the mod uses is unchanged " +
+            "(3020 managed dependencies checked in 512 ms); 2 entries differ only by the build number:\n  named KleiVersion::ChangeList\n  patch target Game::Save(System.IO.BinaryWriter)System.Void", log);
+        Check(ModAdmission.ToleratedBuildLog(764961, 764025, 1, new[] { "x" }, 1).Contains("; 1 entry differs only by the build number:\n  x"), "singular");
+    }
+
     private static void SyntheticEnvelopes()
     {
         var catalog = Enumerable.Repeat((byte)7, 32).ToArray();
@@ -388,7 +463,7 @@ static class Program
 
     private static int Main()
     {
-        Platforms(); Packs(); Duplicates(); GameRefusals(); Catalogues(); Intakes(); SyntheticEnvelopes();
+        Platforms(); Packs(); Duplicates(); GameRefusals(); NewerBuilds(); Catalogues(); Intakes(); SyntheticEnvelopes();
         var real = RealEnvelopes();
         var content = PreparedContent();
         Console.WriteLine(content == 0 ? "Prepared base saves: none available, skipped." : $"Prepared base saves: {content} content decisions pinned.");

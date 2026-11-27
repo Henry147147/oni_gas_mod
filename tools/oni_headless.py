@@ -579,13 +579,21 @@ def stage_package(package: Path, mod: Path, manifest: dict, platform: str = "lin
         raise ValueError("Copied package manifest differs from the verified source manifest.")
 
 
-def validation_folder(mod: Path, manifest: dict, game_build: int) -> Path:
-    """Write test requests where ONI will load this build's mod content."""
+def validation_folder(mod: Path, manifest: dict, game_build: int, newer_game: bool = False) -> Path:
+    """Write test requests where ONI will load this build's mod content.
+
+    `newer_game` (a tolerated-newer-build control run,
+    docs/game-update-resilience.md#tolerated-newer-builds): a game newer than
+    the package's newest build is let through; ONI loads the root content,
+    whose own check then accepts or refuses it."""
     builds = manifest.get("supported_builds")
     if builds is None:  # pre-1.11 packages have only root content
         return mod
+    if newer_game and game_build > max(builds):
+        return mod
     if game_build not in builds:
-        raise ValueError(f"The package does not support the test game build {game_build}")
+        raise ValueError(f"The package does not support the test game build {game_build}"
+                         + (" (--newer-game-control lets a newer game through)" if game_build > max(builds) else ""))
     return mod if game_build == max(builds) else mod / "archived_versions" / str(game_build)
 
 
@@ -1389,7 +1397,7 @@ def playtest(args, state: Path, session: dict) -> int:
     mod = profile / "mods/Dev" / mod_id
     stage_package(package, mod, manifest)
     if manifest.get("supported_builds"):
-        mod = validation_folder(mod, manifest, mod_identity.installed_build(game, "linux-x64"))
+        mod = validation_folder(mod, manifest, mod_identity.installed_build(game, "linux-x64"), getattr(args, "newer_game_control", False))
     if dlc_mask is not None:
         oni_dlc.write_preferences(profile, dlc_mask)
     mods = [{
@@ -1680,6 +1688,9 @@ def main() -> int:
     play = commands.add_parser("run")
     play.add_argument("--game-dir", type=Path, default=os.environ.get("ONI_GAME_DIR", str(DEFAULT_GAME)))
     play.add_argument("--package", type=Path, required=True)
+    play.add_argument("--newer-game-control", action="store_true",
+                      help="Control run: allow a game build newer than the package's newest supported build "
+                           "(the package's own tolerated-newer-build check decides)")
     play.add_argument("--dlc-mask", type=int, choices=range(32), metavar="0..31",
                       help="Exact content selection: bits Spaced Out!, Frosty, Bionic, Prehistoric, Aquatic; 0 is base game")
     play.add_argument("--mode", choices=("menu", "presentation", "tile-hover", "snapshot-copy", "native-observer", "colony-owner", "colony-owner-load", "colony-owner-inactive", "native-configured-domain", "native-configured-water-domain", "native-configured-vacuum-domain", "native-domain", "native-solid-heat-domain", "native-mixed-domain", "native-mixed-heat-domain", "native-viscous-domain", "native-import-domain", "native-liquid-import-domain", "native-liquid-domain", "native-liquid-transfer-domain", "native-heat-domain", "native-liquid-heat-domain", "native-transfer-domain", "native-radius-domain", "native-rectangular-domain", "native-actor-domain", "native-liquid-actor-domain", "native-carbon-domain", "native-carbon-particle-domain", "native-breathing-read-domain", "native-pressure-read-domain", "native-liquid-pressure-read-domain", "native-conduction-domain", "native-gravity-domain", "native-liquid-gravity-domain", "native-checkpoint-domain", "native-paired-checkpoint-domain", "native-save-domain", "native-load-domain", "load-rejection", "colony-vanilla"), default="menu")

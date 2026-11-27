@@ -68,6 +68,9 @@ def judge_other_mod(kind: str, report: str) -> list[str]:
     """
     head, _, verified = report.partition("\nverified:")
     head, _, notice = head.partition("\nnotice:\n")
+    # A game newer than the contract's build (docs/game-update-resilience.md#tolerated-newer-builds):
+    # the entries forgiven for the build number follow the differences.
+    head, newer, _ = head.partition("\nnewer than the contract's build")
     differences = [line.strip() for line in head.splitlines()[1:] if line.strip()]
     failures = []
     if kind == "patched":
@@ -99,7 +102,10 @@ def judge_other_mod(kind: str, report: str) -> list[str]:
                 failures.append(f"{name}...) is not among the differences")
         if any("LoadScreen::DoLoad(" in line or "MainMenu::ResumeGame(" in line for line in differences):
             failures.append("the load entries must stay verified, so that the load guard is installed")
-        for text in ("differ from that version", "SaveLoader.Save", "Verify integrity of game files"):
+        # On a newer game the same changed code needs a mod update; on a known build it is the game's files.
+        expected = (("The game update changed", "SaveLoader.Save", "An update of Mixed Atmospheres is needed") if newer
+                    else ("differ from that version", "SaveLoader.Save", "Verify integrity of game files"))
+        for text in expected:
             if text not in notice:
                 failures.append(f"the notice lacks {text!r}")
     return failures

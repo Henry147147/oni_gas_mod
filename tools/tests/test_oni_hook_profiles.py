@@ -189,9 +189,75 @@ def identity_elf(build_id=b"\x44" * 20, code=None):
     return bytes(image)
 
 
+def revision_pe(revision=0x000BA879, signed=False, stamp=0x11111111, code=None, executable=True):
+    """identity_pe with an executable .text whose bytes at RVA 0x1010 hold
+    the revision constant (`mov eax, imm32` at 0x100F), optionally signed: a
+    0x20-byte certificate appended and its directory entry set. Shared by
+    native/tests/oni_image_identity_tests.cpp."""
+    image = bytearray(identity_pe(stamp=stamp, code=code))
+    if executable:
+        struct.pack_into("<I", image, 0x188 + 36, 0x60000020)
+    image[0x20F] = 0xB8; struct.pack_into("<I", image, 0x210, revision); image[0x214] = 0xC3
+    if signed:
+        struct.pack_into("<II", image, 0x98 + 112 + 32, 0x400, 0x20)
+        struct.pack_into("<I", image, 0x98 + 64, 0x5A5A5A5A)
+        image += bytes((0xA0 + i) & 0xFF for i in range(0x20))
+    return bytes(image)
+
+
+REVISION_SITE = (0x1010, 4)
+
+
+class RevisionMaskedIdentityTests(unittest.TestCase):
+    def test_revision_and_signature_only_are_masked(self):
+        masked = profiles.revision_masked_identity(revision_pe(), *REVISION_SITE)
+        self.assertEqual(masked, REVISION_MASKED_IDENTITY)
+        for other in (revision_pe(revision=0x000BAC21), revision_pe(revision=0x000BAC21, signed=True), revision_pe(signed=True, stamp=0x5EED)):
+            self.assertEqual(profiles.revision_masked_identity(other, *REVISION_SITE), masked)
+        # The exact identity still tells them apart.
+        self.assertNotEqual(profiles.normalized_identity(revision_pe(revision=0x000BAC21)), profiles.normalized_identity(revision_pe()))
+        self.assertNotEqual(profiles.normalized_identity(revision_pe(signed=True)), profiles.normalized_identity(revision_pe()))
+        # Any other byte, the instruction around the constant, or a site one byte off is not masked.
+        self.assertNotEqual(profiles.revision_masked_identity(revision_pe(code=0), *REVISION_SITE), masked)
+        changed = bytearray(revision_pe()); changed[0x214] = 0xC2
+        self.assertNotEqual(profiles.revision_masked_identity(bytes(changed), *REVISION_SITE), masked)
+        self.assertNotEqual(profiles.revision_masked_identity(revision_pe(), 0x1011, 4), masked)
+
+    def test_malformed_sites_and_signatures_are_refused(self):
+        trailing = revision_pe(signed=True) + b"\0"
+        for data, site in ((revision_pe(executable=False), REVISION_SITE), (revision_pe(), (0x3000, 4)), (revision_pe(), (0x1010, 0)),
+                           (trailing, REVISION_SITE), (identity_elf(), REVISION_SITE)):
+            with self.assertRaises(ValueError):
+                profiles.revision_masked_identity(data, *site)
+
+    def test_installed_windows_images_are_carried(self):
+        """763796, 764025 and 764961 differ only in the revision constant and
+        (764961) the signature; a byte changed elsewhere is refused."""
+        value = json.loads(profiles.PROFILE.read_text())
+        images = {}
+        for build, folder in ((763796, "OxygenNotIncluded-763796"), (764025, "OxygenNotIncluded-764025"), (764961, "OxygenNotIncluded")):
+            path = Path("/mnt/data/share/oni") / folder / "OxygenNotIncluded_Data/Plugins/x86_64/SimDLL.dll"
+            if path.is_file():
+                images[build] = path.read_bytes()
+        if len(images) < 2:
+            self.skipTest("fewer than two Windows SimDLL copies of 763796, 764025 and 764961 are on this machine")
+        carried = [p for p in value["profiles"] if p.get("revision_masked_identity") and p.get("oni_build") in (763796, 764025)]
+        self.assertTrue(carried)
+        site = carried[0]["revision_site"]
+        masked = {build: profiles.revision_masked_identity(data, site["rva"], site["bytes"]) for build, data in images.items()}
+        self.assertEqual(len(set(masked.values())), 1, masked)
+        self.assertEqual(next(iter(masked.values())), carried[0]["revision_masked_identity"])
+        data = bytearray(next(iter(images.values())))
+        sections = profiles.pe_sections(bytes(data))
+        offset = profiles.file_offset(sections, site["rva"] + 0x100, 1, executable=True)
+        data[offset] ^= 0xFF
+        self.assertNotEqual(profiles.revision_masked_identity(bytes(data), site["rva"], site["bytes"]), carried[0]["revision_masked_identity"])
+
+
 # The C++ test asserts these same values.
 PE_IDENTITY = "46826a46eff2245d599daf8a4d07190d561347d63c188e18e265bea5c6838a25"
 ELF_IDENTITY = "78245165da47cdd954305d070ccdf123e9fa4721c9433930335c0147f399f623"
+REVISION_MASKED_IDENTITY = "4e1ab008fb681af99af7ec5cc039c1d9c1465a65423e67beaa83c0df58d542a1"
 
 
 class NormalisedIdentityTests(unittest.TestCase):
@@ -269,6 +335,18 @@ class InstalledImageControls(unittest.TestCase):
         if not checked:
             self.skipTest("no licensed SimDLL of a verified profile is available")
 
+    def test_every_installed_linux_image_is_verified(self):
+        """libSimDLL.so has stayed byte for byte the same file through 764961."""
+        value = json.loads(profiles.PROFILE.read_text())
+        identities = {p["native_identity"] for p in value["profiles"] if p["platform"] == "linux-x64"}
+        found = [path for folder in Path("/mnt/data/share/oni").glob("OxygenNotIncluded-linux*")
+                 for path in (folder / "OxygenNotIncluded_Data/Plugins/x86_64/libSimDLL.so", folder / "OxygenNotIncluded_Data/Plugins/libSimDLL.so")
+                 if path.is_file()] if Path("/mnt/data/share/oni").is_dir() else []
+        if not found:
+            self.skipTest("no licensed Linux installation on this machine")
+        for path in found:
+            self.assertIn(profiles.normalized_identity(path.read_bytes()), identities, path)
+
     def test_backend_probe_accepts_only_verified_images(self):
         import ctypes, os, shutil, tempfile
         library = os.environ.get("MA_TEST_ONI_BACKEND_LIBRARY")
@@ -279,6 +357,7 @@ class InstalledImageControls(unittest.TestCase):
             self.skipTest("licensed linux-x64 SimDLL not available")
         backend = ctypes.CDLL(library)
         backend.ma_oni_last_error.restype = ctypes.c_char_p
+        backend.ma_oni_selected_profile.restype = ctypes.c_char_p
 
         class Config(ctypes.Structure):
             _fields_ = [("size", ctypes.c_uint32), ("version", ctypes.c_uint32), ("flags", ctypes.c_uint32),
@@ -294,6 +373,7 @@ class InstalledImageControls(unittest.TestCase):
                 config = Config(24, 4, 1, 0, folder.encode())
                 return backend.ma_oni_probe(ctypes.byref(config), status), backend.ma_oni_last_error().decode()
         self.assertEqual(probe(data)[0], 0)
+        self.assertTrue(backend.ma_oni_selected_profile().decode().startswith("verified (the image of build "))
         stamped = bytearray(data)
         note = bytes(stamped).find(b"GNU\0", 0, 4096)
         self.assertGreater(note, 0)

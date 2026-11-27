@@ -99,7 +99,43 @@ and no save format change; colonies saved by 1.13.10 load in it.
   platforms; the hover and pipe hook tests (`MixtureInspectionTests`,
   `ColonyConduitHookTests`) pass against the Linux 744825, 763796, 764025
   and 764961 games and the Windows 764025 and 764961 assemblies.
-- In the game on 764961 (Linux player, Windows player under Proton), with
-  the hover card over a mixed cell, a backwall cell and a container:
-  PENDING.
-- The release packager and the release steps: PENDING.
+- In the game on 764961, the development package of the working tree
+  (Linux player): the main menu with the mod active; a new Spaced Out!
+  colony, 600 ticks; the user's Cycle 130 save with their seven other mods
+  loads, runs 300 ticks and saves. The hover card on screen: over an air
+  cell the game's entry (Printing Pod) is followed by the mod's card
+  ("OXYGEN MIXTURE (+ TRACES) · Gas pressure 117.5518789 kPa … Breathable ·
+  Oxygen 99.9797% by moles"); over solid tiles the game's card alone. The
+  old `tile-hover` validation mode (a pixel review that belongs to no
+  tier) exceeded its fixed deadline: inconclusive, neither a pass nor a
+  failure. A backwall cell and a container were not looked at.
+
+## Staged package
+
+`e09397d` (`origin/release/1.13`) is staged on the private share as
+`releases/1.13.11` and `publish/update-1.13.11`, and was uploaded to the
+Workshop on 2026-11-27 at 00:11:55 UTC with `tools/workshop.py`
+([the procedure](workshop-upload.md#uploading-a-version)), at the user's
+request of 2026-11-26 ("ONI updated, please get 1.13.11 pushed out ASAP."),
+in an online window of the private Steam client with the game slot held;
+the client went back to Offline Mode. The tool takes revisions on
+`origin/main` only, so `release/1.13` was first merged into `main`
+(`d4fa238`; `main` keeps its version 1.15.0). The published file agrees
+with the release folder file for file.
+
+| Step, on `e09397d`, before the upload | Result |
+| --- | --- |
+| Release builds: Linux for Ubuntu 22.04, the suite's Linux and Windows builds (Windows imports system libraries only) | passed |
+| Package for game builds 744825, 763796, 764025 and 764961, archive verification | passed: `MixedAtmospheres-1.13.11.zip`, 32,105,898 bytes, SHA-256 `8b5198a6…3ebc`; Workshop file 32,104,266 bytes, SHA-256 `3adb8189…91d5e` |
+| Release folder, Linux game 764961: a new Spaced Out! colony and a new base-game colony, 600 ticks at speed 3, saved | 2 of 2 |
+| Five of the user's share saves (Cycles 130, 128, 70, 44, 33) on the release folder with the seven other mods, Linux game 764961 | 5 of 5 |
+| The Cycle 130 save with the seven mods, Windows game 764961 under Proton, release folder | loads and runs (387,121 frames; mass error 2.76e-12, energy 7.8e-14) |
+| A new Spaced Out! colony, Windows game 764961 under Proton, release folder, 600 ticks | passed |
+| Load matrix (744825, 763796, 764025 and 764961, Linux and Windows under Proton), after the upload | all eight players passed |
+
+Not run, at the user's request for speed: the acceptance tiers.
+
+## After this version
+
+The rule that lets the mod run on a game update that changes nothing it
+depends on is built as 1.13.12 (separate work) and is in game testing.

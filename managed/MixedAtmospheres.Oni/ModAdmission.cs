@@ -171,6 +171,89 @@ namespace MixedAtmospheres.Oni
             };
         }
 
+        // `text` with every whole-word occurrence of the game build number
+        // (no digit right before or after it) replaced by `mark`; the pieces
+        // between occurrences pass through `piece` (string escaping). Exact
+        // and narrow: 0 or a negative build masks nothing
+        // (docs/game-update-resilience.md#tolerated-newer-builds).
+        internal static string MaskBuild(string text, int build, string mark, Func<string, string>? piece = null)
+        {
+            piece ??= part => part;
+            if (build <= 0) return piece(text);
+            var number = build.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            var result = new System.Text.StringBuilder();
+            var from = 0;
+            for (var at = text.IndexOf(number, StringComparison.Ordinal); at >= 0; at = text.IndexOf(number, at + 1, StringComparison.Ordinal))
+            {
+                var end = at + number.Length;
+                if (at > 0 && char.IsDigit(text[at - 1]) || end < text.Length && char.IsDigit(text[end])) continue;
+                result.Append(piece(text.Substring(from, at - from))).Append(mark);
+                from = end; at = end - 1;
+            }
+            return result.Append(piece(text.Substring(from))).ToString();
+        }
+
+        // Is a running build newer than the contract's checked with the
+        // build-number reading? Only by the package root, which ONI loads for
+        // every build from the newest supported one on; an adapter under
+        // archived_versions/ is loaded for a build between two supported
+        // ones, and an older or in-between build stays refused by its number.
+        internal static bool ChecksNewerBuild(int running, int contract, bool atPackageRoot) => atPackageRoot && contract > 0 && running > contract;
+
+        internal static bool AtPackageRoot(string modDirectory)
+        {
+            var trimmed = System.IO.Path.GetFullPath(modDirectory).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
+            var folder = System.IO.Path.GetFileName(System.IO.Path.GetDirectoryName(trimmed) ?? "");
+            return !string.Equals(folder, "archived_versions", StringComparison.OrdinalIgnoreCase);
+        }
+
+        // The game is newer than the build this copy was checked against, and
+        // parts of the game the mod uses changed beyond the build number
+        // (docs/game-update-resilience.md#tolerated-newer-builds): an update
+        // of the mod is needed. `differences` are the contract's wording.
+        internal static GameRefusal NewerBuildChanged(string version, int running, int supported, IReadOnlyList<string> differences)
+        {
+            var parts = differences.Select(ShortPart).Distinct(StringComparer.Ordinal).ToArray();
+            var refusal = UnsupportedBuild(version, running, supported);
+            refusal.Notice = "Mixed Atmospheres " + version + " does not support this version of Oxygen Not Included" + Host + " (the game is build " + running +
+                "; this copy of the mod is for build " + supported + "). The game update changed " + Parts(parts.Length) + " of the game the mod uses:\n" +
+                Shown(parts, 3, "") + "\n\n" +
+                "An update of Mixed Atmospheres is needed. Steam installs it by itself once it is released; if this notice stays after an update " +
+                "was released, unsubscribe from the mod and subscribe again." +
+                Untouched("a Mixed Atmospheres version for this game build is installed");
+            refusal.Details = new[] { "the game is build " + running + ", newer than build " + supported + " this version was checked against; changed: " + string.Join("; ", parts) }
+                .Concat(differences).ToArray();
+            return refusal;
+        }
+
+        // The decision on the contract's differences (GameBuildCheck.Admit),
+        // pure so that every combination has a unit control. `patchMarks`:
+        // the differences that are only another mod's Harmony patch mark on
+        // verified code. Null (admitted) when every difference is one: the mod
+        // runs beside those patches, on a supported build as on a newer one
+        // whose other differences the build number accounted for
+        // (docs/game-update-resilience.md#other-mods). Otherwise, on a known
+        // build (`checkedAgainst` 0) the game's code is not that build's; on a
+        // newer one (`checkedAgainst`, the contract's build) a Mixed
+        // Atmospheres update is needed, naming what changed apart from the marks.
+        internal static GameRefusal? AdmitDifferences(string version, int build, int checkedAgainst, IReadOnlyList<string> differences, ICollection<string> patchMarks)
+        {
+            if (differences.All(patchMarks.Contains)) return null;
+            if (checkedAgainst <= 0) return GameFiles(build, differences);
+            var refusal = NewerBuildChanged(version, build, checkedAgainst, differences.Where(d => !patchMarks.Contains(d)).ToArray());
+            refusal.Details = refusal.Details.Concat(differences.Where(patchMarks.Contains)).ToArray();
+            return refusal;
+        }
+
+        // Player.log, once, when a newer game is accepted because every part
+        // of the game the mod uses is unchanged apart from the build number.
+        // No notice: nothing needs the player's attention.
+        internal static string ToleratedBuildLog(int running, int supported, int checkedEntries, IReadOnlyList<string> forgiven, double milliseconds) =>
+            "Game build " + running + " is newer than the build this version was checked against (" + supported + "); every part of the game the mod uses is unchanged (" +
+            checkedEntries + " managed dependencies checked in " + milliseconds.ToString("F0", System.Globalization.CultureInfo.InvariantCulture) + " ms); " +
+            (forgiven.Count == 1 ? "1 entry differs" : forgiven.Count + " entries differ") + " only by the build number:" +
+            string.Concat(forgiven.Select(entry => "\n  " + entry));
+
         // Player.log only, after the verified line: game methods the mod
         // uses that other mods' Harmony patches sit on. Each line is
         // "Type.Method <- Mod title (Harmony: id)". The patch mark is the
