@@ -61,6 +61,8 @@ namespace MixedAtmospheres.Oni
         internal const uint RequiredNativeVersion = 2;
         internal static string ConfigureFailure { get; private set; } = "";
         internal static long RoutedEdits { get; private set; }
+        // A validation scenario's view of each routed edit (public cell, disease index + 1, change); null in play.
+        internal static Action<uint, uint, double>? EditObserver;
 
         internal static void Reset() { RoutedEdits = 0; ownerEvolves = -1; }
         // Whether the owner evolves the world's germs itself (mode 1). A legacy colony (mode 0) projects its
@@ -161,7 +163,7 @@ namespace MixedAtmospheres.Oni
             }
             if (edits == null) return;
             OniNativeColony.Check(QueueGerms(edits.ToArray(), (uint)edits.Count));
-            RoutedEdits += edits.Count;
+            Count(edits);
         }
 
         // Germ edits of the owner's own (ColonyGermCleaners).
@@ -169,7 +171,14 @@ namespace MixedAtmospheres.Oni
         {
             if (edits.Count == 0 || !Supported) return;
             OniNativeColony.Check(QueueGerms(edits.ToArray(), (uint)edits.Count));
+            Count(edits);
+        }
+
+        private static void Count(List<GermEdit> edits)
+        {
             RoutedEdits += edits.Count;
+            var observer = EditObserver;
+            if (observer != null) foreach (var edit in edits) observer(edit.PublicCell, edit.Disease, edit.Change);
         }
 
         // Every disease identity of an owned cell, most numerous first, for the

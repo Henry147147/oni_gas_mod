@@ -106,6 +106,7 @@ namespace MixedAtmospheres.Oni
             var t = Klei.AI.Disease.HalfLifeToGrowthRate(Klei.AI.Disease.CalculateRangeHalfLife(temperature, ref d.temperatureRange, ref d.temperatureHalfLives), .2f);
             return 1 + (t - 1) + (Klei.AI.Disease.HalfLifeToGrowthRate(g.populationHalfLife, .2f) - 1);
         }
+        private static string worldGermStrays = "";
         private static void WorldGerms(int frame)
         {
             var left = Enumerable.Range(0, 4).SelectMany(x => Enumerable.Range(0, Height).Select(y => (x, y))).ToArray();
@@ -118,7 +119,15 @@ namespace MixedAtmospheres.Oni
             {
                 ColonyWorldGerms.TryRead(out var s, out _);
                 Record("owner evolves world germs", s.Mode == 1, $"mode {s.Mode}, supported {ColonyWorldGerms.Supported} {ColonyWorldGerms.ConfigureFailure}");
-                recorded["routed"] = ColonyWorldGerms.RoutedEdits;
+                // Only the edits on this arena count: the colony's own germ edits elsewhere (a duplicant, a
+                // building) fall into the same frames at times that differ between players.
+                recorded["routed"] = 0; worldGermStrays = "";
+                var arena = new HashSet<uint>(left.Concat(right).Select(c => (uint)Cell(c.x, c.y)));
+                ColonyWorldGerms.EditObserver = (cell, disease, change) =>
+                {
+                    if (arena.Contains(cell)) recorded["routed"] += 1;
+                    else worldGermStrays += $"; outside the arena: cell {cell}, disease {disease - 1}, change {change:G6}";
+                };
                 foreach (var (x, y) in left)
                 {
                     SimMessages.ModifyDiseaseOnCell(Cell(x, y), DiseaseIndex(slime), InWindow(slime, SimHashes.ContaminatedOxygen, 1));
@@ -132,9 +141,10 @@ namespace MixedAtmospheres.Oni
                 recorded["l-slime"] = l.TryGetValue(Id(slime), out var a) ? a : 0; recorded["l-food"] = l.TryGetValue(Id(food), out var b) ? b : 0;
                 recorded["r-slime"] = r.TryGetValue(Id(slime), out var c) ? c : 0;
                 ColonyWorldGerms.TryRead(out var s, out _); recorded["frames"] = s.Frames;
-                Record("the game's germ edits reached the owner", ColonyWorldGerms.RoutedEdits - recorded["routed"] == 2 * left.Length + 1 && recorded["l-slime"] > 0 &&
-                    recorded["l-food"] > 0 && recorded["r-slime"] > 1e4, $"routed {ColonyWorldGerms.RoutedEdits - recorded["routed"]}, left slimelung {recorded["l-slime"]:G6}, " +
-                    $"food poisoning {recorded["l-food"]:G6}, right slimelung {recorded["r-slime"]:G6}");
+                ColonyWorldGerms.EditObserver = null;
+                Record("the game's germ edits reached the owner", recorded["routed"] == 2 * left.Length + 1 && recorded["l-slime"] > 0 &&
+                    recorded["l-food"] > 0 && recorded["r-slime"] > 1e4, $"routed {recorded["routed"]}, left slimelung {recorded["l-slime"]:G6}, " +
+                    $"food poisoning {recorded["l-food"]:G6}, right slimelung {recorded["r-slime"]:G6}{worldGermStrays}");
             }
             if (Once(110, "check"))
             {
