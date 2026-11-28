@@ -71,7 +71,8 @@ namespace MixedAtmospheres.Oni
             var first = (condition ?? "").Split('\n')[0];
             var text = new System.Text.StringBuilder();
             foreach (var c in first) if (!char.IsDigit(c)) text.Append(c);
-            var line = text.ToString().Trim();
+            // Without a closing full stop: CoreCLR (Moono) ends the null reference message with one, Mono does not.
+            var line = text.ToString().Trim().TrimEnd('.');
             if (line.Length > 140) line = line.Substring(0, 140);
             var frame = "";
             foreach (var raw in (stackTrace ?? "").Split('\n'))
@@ -268,6 +269,9 @@ namespace MixedAtmospheres.Oni
             { "ForestTreeBranch", new HashSet<string> { "Gone: it removed itself within its 22 ticks" } },
             { "Geyser", new HashSet<string> { "Error: ~~~!System.NullReferenceException: Object reference not set to an instance of an object" } },
             { "IceSculpture", new HashSet<string> { "Gone: the building removed itself within its 22 ticks" } },
+            // The game's own cleanup of the story mailbox, in a colony whose worlds were generated without the Lonely
+            // Minion story (the story traits are drawn per colony; seen 2026-11-27, release tier on 48fa61e).
+            { "LonelyMailBox", new HashSet<string> { "Exception: NullReferenceException: Object reference not set to an instance of an object @ LonelyMinionMailbox.OnCleanUp" } },
             { "MethaneGeyser", new HashSet<string> { "Error: ~~~!System.NullReferenceException: Object reference not set to an instance of an object" } },
             { "SaltPlant", new HashSet<string> { "Gone: it removed itself within its 22 ticks" } },
             { "SpiceVine", new HashSet<string> { "Gone: it removed itself within its 22 ticks" } },
