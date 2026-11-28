@@ -292,9 +292,34 @@ ok   trim-anim-lists: 4484 lists trimmed, 72.3 MB freed, 0 differed
 
 ## Staged package
 
-Revision `48fa61e` on game build 764961: `artifacts/v1.15.0/accept-pre.sh` up to staging, then
-`accept-post.sh`. Evidence is under `artifacts/v1.15.0/48fa61e` and `artifacts/acceptance/48fa61e`.
-The folder is staged on hold. Nothing is uploaded.
+PENDING(release chain): the second candidate, cut after the test fixes
+[below](#the-eight-failed-steps). Its play code is that of the first candidate
+plus an observer hook, unset in play, on the routed germ edits.
+`artifacts/v1.15.0/accept-pre.sh` up to staging, then `accept-post.sh`, on the
+cut revision. Nothing is uploaded.
+
+| Step | Result |
+| --- | --- |
+| Builds: Linux for Ubuntu 22.04, the Windows build, the Linux build | PENDING |
+| Package for game builds 744825, 763796, 764025 and 764961 | PENDING |
+| Archive verification | PENDING |
+| Five of the user's share saves (Cycles 130, 128, 70, 44, 33) with their seven other mods, Unity's player, release folder | PENDING |
+| Rephysicalized on the release folder, Unity's player, 6 runs: main menu with it first; new colonies with it first and after it; the two-mod save reloaded; the element notices for the Cycle 130 save with it and for the two-mod save without it | PENDING |
+| Moono with its default tweaks on the release folder, 5 runs: new colony; with Rephysicalized first; a save of Unity's player; the Cycle 130 save with the seven mods; without a window | PENDING |
+| Two controls: the mod-off stand-in (its patches removed) refuses the Cycle 128 save; the stand-in's patches are accepted | PENDING |
+| The Cycle 130 save with the seven mods, Windows build under Proton | PENDING |
+| A new colony with Rephysicalized after the mod, Windows build under Proton | PENDING |
+| Stage, Workshop dry run | PENDING |
+| Load matrix (the four game builds, Linux and Windows under Proton) | PENDING |
+| Patch tier on the three platforms with the batches of `rephysicalized`, `message-edges` and `building-emitter` | PENDING |
+| The other ten share saves (Cycles 129 to 121, 55, 49) with their seven mods, Unity's player, release folder | PENDING |
+| Release tier on the three platforms (`--platform all`, 184 steps): every Linux game step on Unity's player and its Moono twin, the Rephysicalized steps and their twins, the six Moono-only steps, the Windows steps under Proton | PENDING |
+
+## First candidate
+
+Revision `48fa61e` on game build 764961, 2026-11-27. Evidence is under
+`artifacts/v1.15.0/48fa61e` and `artifacts/acceptance/48fa61e`. It was staged
+on hold and not uploaded.
 
 | Step | Result |
 | --- | --- |
@@ -311,8 +336,22 @@ The folder is staged on hold. Nothing is uploaded.
 | Stage, Workshop dry run | staged on hold; dry run passed |
 | Load matrix (the four game builds, Linux and Windows under Proton) | 8 of 8 |
 | Patch tier on the three platforms with the batches of `rephysicalized`, `message-edges` and `building-emitter` | 14 of 14 steps |
-| The other ten share saves (Cycles 129 to 121, 55, 49) with their seven mods, Unity's player, release folder | PENDING |
-| Release tier on the three platforms (`--platform all`, 184 steps): every Linux game step on Unity's player and its Moono twin, the Rephysicalized steps and their twins, the six Moono-only steps, the Windows steps under Proton | PENDING |
+| The other ten share saves (Cycles 129 to 121, 55, 49) with their seven mods, Unity's player, release folder | 10 of 10 |
+| Release tier on the three platforms (`--platform all`, 184 steps): every Linux game step on Unity's player and its Moono twin, the Rephysicalized steps and their twins, the six Moono-only steps, the Windows steps under Proton | 176 of 184: Unity's player 79 of 80, Windows under Proton 20 of 20, Moono 77 of 84; the eight are [test-side](#the-eight-failed-steps) |
+
+### The eight failed steps
+
+None is a fault in play. Each was rerun with its fix on a development package
+(`artifacts/v1.15.0/runs/g1-*` to `g5-*`).
+
+| Step | What failed | Cause | Fix |
+| --- | --- | --- | --- |
+| `linux-menu-rephysicalized`, `moono-menu-rephysicalized` | check `mod_active` | The check asked for the release folder's verdict `passed-menu-active`; the suite's development package passes the menu as `passed-scoped-main-menu`. The runs passed, with the mod verified and Rephysicalized's patches named | The check accepts both verdicts |
+| `moono-b8` | `world-germs`: 50 routed germ edits where exactly 49 are expected | The count ran over the whole colony. The seeded amounts equal those of Unity's player. Three reruns counted 49; where the extra edit landed is not established | The scenario counts the edits on its own cells and names any other |
+| `moono-b11` | `mixed-pipe-all-germs` threw | The all-identity pipe biology [does not start under Moono](#left-as-they-are) | Moono twins leave that scenario out (`MOONO_EXCLUDED_SCENARIOS`) |
+| `moono-x27` | `owned-storage-readers`: the reservoir's details listed no fractional germ identities | Without the all-identity biology the game's own pipe germ update governs; the store held none of the three identities in this run and all three in a rerun | Without the all-identity biology the scenario expects the details to list what the store holds |
+| `moono-x47`, `moono-x48` | `every-living-1`, `-2`: three geysers log an error "beyond their baseline" | The game's own error, also under its own simulation. CoreCLR ends the null reference message with a full stop; the baseline was recorded on Mono | Log signatures drop a closing full stop |
+| `moono-x40` | `every-building-3`: the Lonely Minion mailbox throws in `OnCleanUp` | The game's own cleanup dereferences the Lonely Minion story, which a colony has only when worldgen drew that story trait. Two runs without the story threw; five with it did not (both players, both simulations) | The line is in the baseline |
 
 ### Rephysicalized first on the Windows build
 
